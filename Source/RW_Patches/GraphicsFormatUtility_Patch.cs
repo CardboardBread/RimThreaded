@@ -26,7 +26,7 @@ namespace RimThreaded.RW_Patches
 
         internal static void RunDestructivePatches()
         {
-            RimThreadedHarmony.harmony.Patch(methodGetGraphicsFormat,
+            RimThreadedHarmony.Harmony.Patch(methodGetGraphicsFormat,
                 prefix: new HarmonyMethod(Method(patched, nameof(GetGraphicsFormat))));
         }
 
@@ -35,7 +35,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcGetGraphicsFormat2, new object[] { format, readWrite } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (GraphicsFormat)threadInfo.safeFunctionResult;
             return false;

@@ -30,7 +30,7 @@ namespace RimThreaded.RW_Patches
                 return true;
 
             threadInfo.safeFunctionRequest = new object[] { ActionDrawMeshNowOrLater, new object[] { mesh, loc, quat, mat, drawNow } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

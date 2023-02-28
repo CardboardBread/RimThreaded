@@ -1,4 +1,6 @@
-﻿using System;
+﻿using HarmonyLib;
+using RimThreaded.Utilities;
+using System;
 using System.Collections.Generic;
 using Verse;
 
@@ -8,6 +10,7 @@ namespace RimThreaded.RW_Patches
     {
         [ThreadStatic] public static List<IntVec3>[] mapSingleEdgeCells;
 
+        [ThreadStaticInitializer]
         internal static void InitializeThreadStatics()
         {
             mapSingleEdgeCells = new List<IntVec3>[4];
@@ -19,13 +22,11 @@ namespace RimThreaded.RW_Patches
             Type patched = typeof(CellFinder_Patch);
             RimThreadedHarmony.Prefix(original, patched, nameof(TryFindRandomCellNear), null, false);
         }
-        public static bool TryFindRandomCellNear(ref bool __result, IntVec3 root,
-              Map map,
-              int squareRadius,
-              Predicate<IntVec3> validator,
-              ref IntVec3 result,
-              int maxTries = -1
-            )
+
+        [HarmonyPrefix]
+        [NonDestructivePatch]
+        [HarmonyPatch(typeof(CellFinder), nameof(CellFinder.TryFindRandomCellNear))]
+        public static bool TryFindRandomCellNear(ref bool __result, IntVec3 root, Map map, int squareRadius, Predicate<IntVec3> validator, ref IntVec3 result, int maxTries = -1)
         {
             if (map == null)
             {

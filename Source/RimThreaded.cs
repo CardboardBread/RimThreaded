@@ -9,26 +9,35 @@ using System.Collections.Concurrent;
 using System.Threading;
 using UnityEngine;
 using RimThreaded.RW_Patches;
+using System.Threading.Tasks;
+using RimThreaded.Utilities;
 
 namespace RimThreaded
 {
+    // Main singleton class for handling the normal operation of RimThreaded.
     [StaticConstructorOnStartup]
-    public class RimThreaded
+    public static class RimThreaded
     {
+        public static RimThreadedTaskScheduler TaskScheduler = new();
+
+        public static List<Task> Tasks = new();
+        public static TaskFactory TaskFactory = new();
+        public static CancellationTokenSource CancellationTokenSource = new();
+
         public static Dictionary<Bill_Production, List<Pawn>> billFreeColonistsSpawned = new Dictionary<Bill_Production, List<Pawn>>();
 
-        public static int maxThreads = Math.Min(Math.Max(int.Parse(RimThreadedMod.Settings.maxThreadsBuffer), 1), 128);
-        public static int timeoutMS = Math.Min(Math.Max(int.Parse(RimThreadedMod.Settings.timeoutMSBuffer), 5000), 1000000);
-        public static float timeSpeedNormal = float.Parse(RimThreadedMod.Settings.timeSpeedNormalBuffer);
-        public static float timeSpeedFast = float.Parse(RimThreadedMod.Settings.timeSpeedFastBuffer);
-        public static float timeSpeedSuperfast = float.Parse(RimThreadedMod.Settings.timeSpeedSuperfastBuffer);
-        public static float timeSpeedUltrafast = float.Parse(RimThreadedMod.Settings.timeSpeedUltrafastBuffer);
+        public static int maxThreads = Math.Min(Math.Max(int.Parse(RimThreadedSettings.Instance.maxThreadsBuffer), 1), 128);
+        public static int timeoutMS = Math.Min(Math.Max(int.Parse(RimThreadedSettings.Instance.timeoutMSBuffer), 5000), 1000000);
+        public static float timeSpeedNormal = float.Parse(RimThreadedSettings.Instance.timeSpeedNormalBuffer);
+        public static float timeSpeedFast = float.Parse(RimThreadedSettings.Instance.timeSpeedFastBuffer);
+        public static float timeSpeedSuperfast = float.Parse(RimThreadedSettings.Instance.timeSpeedSuperfastBuffer);
+        public static float timeSpeedUltrafast = float.Parse(RimThreadedSettings.Instance.timeSpeedUltrafastBuffer);
         public static DateTime lastTicksCheck = DateTime.Now;
         public static int lastTicksAbs = -1;
         public static int ticksPerSecond = 0;
 
-        public static EventWaitHandle mainThreadWaitHandle = new AutoResetEvent(false);
-        public static EventWaitHandle monitorThreadWaitHandle = new AutoResetEvent(false);
+        public static EventWaitHandle MainWaitHandle = new AutoResetEvent(false);
+        public static EventWaitHandle MonitorWaitHandle = new AutoResetEvent(false);
         private static readonly Thread monitorThread;
         private static bool allWorkerThreadsFinished;
 
@@ -45,7 +54,6 @@ namespace RimThreaded
         public static int thingListRareTicks = 0;
         public static List<Thing> thingListLong;
         public static int thingListLongTicks = 0;
-
 
         //WorldObjectsHolder
         public static int worldObjectsTicks = 0;
@@ -78,7 +86,6 @@ namespace RimThreaded
         public static object allSustainersLock = new object();
         //public static object map_AttackTargetReservationManager_reservations_Lock = new object();
 
-
         public class ThreadInfo
         {
             public EventWaitHandle eventWaitStart = new AutoResetEvent(false);
@@ -88,13 +95,51 @@ namespace RimThreaded
             public object[] safeFunctionRequest;
             public object safeFunctionResult;
         }
+
         static RimThreaded()
         {
-            RimThreadedHarmony rtHarmony = new RimThreadedHarmony();
             InitializeAllThreadStatics();
             CreateWorkerThreads();
             monitorThread = new Thread(MonitorThreads) { IsBackground = true };
             monitorThread.Start();
+        }
+
+        internal static void WorkerThreadStart(object state)
+        {
+            if (state is ThreadedTickAction single)
+            {
+                WorkerThreadTick(single);
+            }
+            else if (state is List<ThreadedTickAction> multi)
+            {
+                foreach (var item in multi)
+                {
+                    WorkerThreadTick(item);
+                }
+            }
+            else
+            {
+                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} was not provided ThreadedTickAction as state object.");
+            }
+        }
+
+        internal static void WorkerThreadTick(ThreadedTickAction action)
+        {
+            action.Handle.WaitOne();
+            try
+            {
+                action.Action.Invoke();
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} encountered error from tick action:\n{ex}");
+            }
+        }
+
+        internal class ThreadedTickAction
+        {
+            public Action Action;
+            public EventWaitHandle Handle = new ManualResetEvent(false);
         }
 
         public static void AddNormalTicking(object instance, Action<object> prepare, Action<object> tick)
@@ -196,8 +241,12 @@ namespace RimThreaded
             InitializeAllThreadStatics();
             ProcessTicks(ti);
         }
+
         public static void InitializeAllThreadStatics()
         {
+            
+
+            
             CellFinder_Patch.InitializeThreadStatics();
             ColoredText_Patch.InitializeThreadStatics();
             CompCauseGameCondition_Patch.InitializeThreadStatics();
@@ -224,6 +273,7 @@ namespace RimThreaded
             AttackTargetReservationManager_Patch.InitializeThreadStatics();
             ReservationManager_Patch.InitializeThreadStatics();
             ListerThings_Patch.InitializeThreadStatics();
+            */
         }
         private static void ProcessTicks(ThreadInfo threadInfo)
         {
@@ -387,7 +437,7 @@ namespace RimThreaded
         {
             while (true)
             {
-                monitorThreadWaitHandle.WaitOne();
+                MonitorWaitHandle.WaitOne();
 
                 foreach (ThreadedTickList tickList in threadedTickLists)
                 {
@@ -435,7 +485,7 @@ namespace RimThreaded
                     }
                 }
                 allWorkerThreadsFinished = true;
-                mainThreadWaitHandle.Set();
+                MainWaitHandle.Set();
             }
         }
 
@@ -455,11 +505,11 @@ namespace RimThreaded
             frameCount = Time.frameCount;
             callingTickManager = tickManager;
             allWorkerThreadsFinished = false;
-            monitorThreadWaitHandle.Set();
+            MonitorWaitHandle.Set();
 
             while (!allWorkerThreadsFinished)
             {
-                mainThreadWaitHandle.WaitOne();
+                MainWaitHandle.WaitOne();
                 RespondToSafeFunctionRequests();
                 MainPlayOneShot(); //TODO: is PlayOneShot section still needed?
             }

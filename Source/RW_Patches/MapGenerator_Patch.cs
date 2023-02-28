@@ -33,7 +33,7 @@ namespace RimThreaded.RW_Patches
             threadInfo.timeoutExempt = 60000;
             threadInfo.safeFunctionRequest = new object[] { FuncGenerateMap, new object[] {
                 mapSize, parent, mapGenerator, extraGenStepDefs, extraInitBeforeContentGen } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             threadInfo.timeoutExempt = 0;
             __result = (Map)threadInfo.safeFunctionResult;

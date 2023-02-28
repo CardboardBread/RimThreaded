@@ -27,7 +27,7 @@ namespace RimThreaded.RW_Patches
             {
                 Func<object[], object> FuncMaterialPropertyBlock = parameters => new MaterialPropertyBlock();
                 threadInfo.safeFunctionRequest = new object[] { FuncMaterialPropertyBlock, new object[] { } };
-                mainThreadWaitHandle.Set();
+                MainWaitHandle.Set();
                 threadInfo.eventWaitStart.WaitOne();
                 __instance.iconMatPropertyBlock = (MaterialPropertyBlock)threadInfo.safeFunctionResult;
             }

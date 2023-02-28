@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Verse;
 using UnityEngine;
 using System.Threading;
+using HarmonyLib;
 
 namespace RimThreaded.RW_Patches
 {
@@ -16,6 +17,7 @@ namespace RimThreaded.RW_Patches
             RimThreadedHarmony.Prefix(original, patched, "WindManagerTick");
         }
 
+        [HarmonyPatch(typeof(WindManager), nameof(WindManager.WindManagerTick))]
         public static bool WindManagerTick(WindManager __instance)
         {
             __instance.cachedWindSpeed = __instance.BaseWindSpeedAt(Find.TickManager.TicksAbs) * __instance.map.weatherManager.CurWindSpeedFactor;

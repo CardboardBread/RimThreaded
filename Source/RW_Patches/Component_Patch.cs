@@ -16,7 +16,7 @@ namespace RimThreaded.RW_Patches
                 return __instance.transform;
             Func<object[], object> FuncTransform = parameters => __instance.transform;
             threadInfo.safeFunctionRequest = new object[] { FuncTransform, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (Transform)threadInfo.safeFunctionResult;
         }
@@ -27,7 +27,7 @@ namespace RimThreaded.RW_Patches
                 return __instance.gameObject;
             Func<object[], object> FuncGameObject = parameters => __instance.gameObject;
             threadInfo.safeFunctionRequest = new object[] { FuncGameObject, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (GameObject)threadInfo.safeFunctionResult;
         }

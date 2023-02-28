@@ -24,7 +24,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { FuncLightningBoltMeshMaker, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Mesh)threadInfo.safeFunctionResult;
             return false;

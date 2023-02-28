@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using HarmonyLib;
+using RimThreaded.Utilities;
 using RimWorld;
 using Verse;
 
@@ -16,6 +18,11 @@ namespace RimThreaded.RW_Patches
             RimThreadedHarmony.Prefix(original, patched, nameof(GetConditionInstance));
             RimThreadedHarmony.Prefix(original, patched, nameof(CreateConditionOn));
             RimThreadedHarmony.Prefix(original, patched, nameof(CompTick));
+
+            var oMethod = AccessTools.Method(original, nameof(CompCauseGameCondition.CompTick));
+            var pMethod = AccessTools.Method(patched, nameof(CompCauseGameCondition.CompTick));
+            var hpMethod = new HarmonyMethod(pMethod);
+            RimThreadedHarmony.Harmony.Patch(original: oMethod, prefix: hpMethod);
         }
 
         public static void InitializeThreadStatics()
@@ -23,6 +30,9 @@ namespace RimThreaded.RW_Patches
             tmpDeadConditionMaps = new List<Map>();
         }
 
+        [HarmonyPrefix]
+        [DestructivePatch]
+        [HarmonyPatch(typeof(CompCauseGameCondition), nameof(CompCauseGameCondition.GetConditionInstance))]
         public static bool GetConditionInstance(CompCauseGameCondition __instance, ref GameCondition __result, Map map)
         {
             if (!__instance.causedConditions.TryGetValue(map, out GameCondition value) && __instance.Props.preventConditionStacking)
@@ -41,6 +51,7 @@ namespace RimThreaded.RW_Patches
             __result = value;
             return false;
         }
+
         public static bool CreateConditionOn(CompCauseGameCondition __instance, ref GameCondition __result, Map map)
         {
             GameCondition gameCondition = GameConditionMaker.MakeCondition(__instance.ConditionDef);

@@ -20,7 +20,7 @@ namespace RimThreaded.RW_Patches
             Type patched = typeof(Sustainer_Patch);
             ConstructorInfo oMethod = Constructor(original);
             HarmonyMethod transpilerMethod = new HarmonyMethod(Method(patched, nameof(TranspileCtor)));
-            RimThreadedHarmony.harmony.Patch(oMethod, transpiler: transpilerMethod);
+            RimThreadedHarmony.Harmony.Patch(oMethod, transpiler: transpilerMethod);
         }
 
         public static IEnumerable<CodeInstruction> TranspileCtor(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)

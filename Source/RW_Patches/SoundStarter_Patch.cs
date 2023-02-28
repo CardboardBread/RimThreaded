@@ -25,7 +25,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionPlayOneShot, new object[] { soundDef, info } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -38,7 +38,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionPlayOneShotOnCamera, new object[] { soundDef, onlyThisMap } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

@@ -30,7 +30,7 @@ namespace RimThreaded.RW_Patches
                     (int)parameters[0],
                     (int)parameters[1]);
             threadInfo.safeFunctionRequest = new object[] { safeFunction3, new object[] { x, y } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Color)threadInfo.safeFunctionResult;
             return false;
@@ -56,7 +56,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { mono, w, h, mipCount, format, flags, nativeTex } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -68,7 +68,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             Action<object[]> safeFunction = p => __instance.ReadPixels((Rect)p[0], (int)p[1], (int)p[2], (bool)p[3]);
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { source, destX, destY, recalculateMipMaps } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -80,7 +80,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             Action<object[]> safeFunction = p => __instance.Apply((bool)p[0], (bool)p[1]);
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { updateMipmaps, makeNoLongerReadable } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

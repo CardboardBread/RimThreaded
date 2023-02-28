@@ -14,9 +14,9 @@ namespace RimThreaded.RW_Patches
         {
             Type original = typeof(Texture);
             Type patched = typeof(Texture_Patch);
-            RimThreadedHarmony.harmony.Patch(Method(original, "get_width", Type.EmptyTypes),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "get_width", Type.EmptyTypes),
                 prefix: new HarmonyMethod(Method(patched, nameof(get_width))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "get_height", Type.EmptyTypes),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "get_height", Type.EmptyTypes),
                 prefix: new HarmonyMethod(Method(patched, nameof(get_height))));
         }
 
@@ -33,7 +33,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcget_width2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (int)threadInfo.safeFunctionResult;
             return false;
@@ -54,7 +54,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcget_height2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (int)threadInfo.safeFunctionResult;
             return false;

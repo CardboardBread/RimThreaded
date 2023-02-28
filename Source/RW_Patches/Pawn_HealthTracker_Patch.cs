@@ -28,14 +28,14 @@ namespace RimThreaded.RW_Patches
             //RimThreadedHarmony.Prefix(original, patched, nameof(CheckForStateChange));
             MethodInfo checkForStateChange = Method(original, "CheckForStateChange");
             MethodInfo checkForStateChangeMonitorEnterMethod = Method(patched, nameof(CheckForStateChangeMonitorEnter));
-            RimThreadedHarmony.harmony.Patch(checkForStateChange, prefix: new HarmonyMethod(checkForStateChangeMonitorEnterMethod, 1000));
+            RimThreadedHarmony.Harmony.Patch(checkForStateChange, prefix: new HarmonyMethod(checkForStateChangeMonitorEnterMethod, 1000));
             RimThreadedHarmony.nonDestructivePrefixes.Add(checkForStateChangeMonitorEnterMethod);
-            RimThreadedHarmony.harmony.Patch(checkForStateChange, finalizer: new HarmonyMethod(Method(patched, nameof(CheckForStateChangeMonitorExit)), -1000));
+            RimThreadedHarmony.Harmony.Patch(checkForStateChange, finalizer: new HarmonyMethod(Method(patched, nameof(CheckForStateChangeMonitorExit)), -1000));
             MethodInfo postApplyDamage = Method(original, "PostApplyDamage");
             MethodInfo postApplyDamageEnterMethod = Method(patched, nameof(PostApplyDamageEnter));
             RimThreadedHarmony.nonDestructivePrefixes.Add(postApplyDamageEnterMethod);
-            RimThreadedHarmony.harmony.Patch(postApplyDamage, prefix: new HarmonyMethod(postApplyDamageEnterMethod, 1000));
-            RimThreadedHarmony.harmony.Patch(postApplyDamage, finalizer: new HarmonyMethod(Method(patched, nameof(PostApplyDamageExit)), -1000));
+            RimThreadedHarmony.Harmony.Patch(postApplyDamage, prefix: new HarmonyMethod(postApplyDamageEnterMethod, 1000));
+            RimThreadedHarmony.Harmony.Patch(postApplyDamage, finalizer: new HarmonyMethod(Method(patched, nameof(PostApplyDamageExit)), -1000));
         }
         [ThreadStatic] static bool Pawn_HealthTrackerLockTaken;
         [ThreadStatic] static HediffSet Pawn_HealthTrackerHediffSet;

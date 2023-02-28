@@ -6,9 +6,8 @@ using System.Reflection.Emit;
 using System;
 using System.Reflection;
 using UnityEngine;
-using RimThreaded.Mod_Patches;
 
-namespace RimThreaded
+namespace RimThreaded.Mod_Patches
 {
     public class JobGiver_FindItemByRadius_Transpile
     {
@@ -124,7 +123,7 @@ namespace RimThreaded
                     yield return new CodeInstruction(OpCodes.Ldarg_0);
                     yield return new CodeInstruction(OpCodes.Ldfld, AccessTools.Field(AwesomeInventory_Patch.awesomeInventoryJobsJobGiver_FindItemByRadius, "_itemFound"));
                     yield return new CodeInstruction(OpCodes.Stloc, itemFound.LocalIndex);
-                    yield return new CodeInstruction(OpCodes.Ldloc, itemFound.LocalIndex);                    
+                    yield return new CodeInstruction(OpCodes.Ldloc, itemFound.LocalIndex);
                     yield return new CodeInstruction(OpCodes.Brfalse_S, IL_00b2);
 
                     // lastUsedRadius--;
@@ -134,7 +133,8 @@ namespace RimThreaded
                     yield return new CodeInstruction(OpCodes.Stloc, itemFound.LocalIndex);
 
                     currentInstructionIndex += 24;
-                } else if (currentInstructionIndex + 1 < instructionsList.Count &&
+                }
+                else if (currentInstructionIndex + 1 < instructionsList.Count &&
                     instructionsList[currentInstructionIndex].opcode == OpCodes.Ldnull &&
                     instructionsList[currentInstructionIndex + 1].opcode == OpCodes.Stloc_1
                 )
@@ -250,7 +250,7 @@ namespace RimThreaded
             {
                 Log.Error("IL code instructions not found");
             }
-        
+
         }
 
         public static IEnumerable<CodeInstruction> FindItem2(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
@@ -293,7 +293,7 @@ namespace RimThreaded
                     currentInstructionIndex++;
                     yield return instructionsList[currentInstructionIndex];
                     currentInstructionIndex++;
-                
+
                     // if (--local_lastUsedRadiusIndex < 0)
                     //IL_0070: ldloc.1
                     //IL_0071: ldc.i4.1
@@ -340,7 +340,7 @@ namespace RimThreaded
                     instructionsList[currentInstructionIndex].opcode = OpCodes.Ldloc;
                     instructionsList[currentInstructionIndex].operand = lastUsedRadius.LocalIndex;
                     yield return instructionsList[currentInstructionIndex];
-                    currentInstructionIndex+=2;
+                    currentInstructionIndex += 2;
                 }
                 // if (++_lastUsedRadiusIndex == _radius.Count)
                 else if (currentInstructionIndex + 4 < instructionsList.Count &&

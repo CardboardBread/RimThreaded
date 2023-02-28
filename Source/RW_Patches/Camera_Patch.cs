@@ -27,7 +27,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             threadInfo.safeFunctionRequest = new object[] {
                 SafeActionSetTargetTexture, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -46,7 +46,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { SafeActionRender, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

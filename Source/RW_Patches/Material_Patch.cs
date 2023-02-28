@@ -87,21 +87,21 @@ namespace RimThreaded.RW_Patches
         {
             Type original = typeof(Material);
             Type patched = typeof(Material_Patch);
-            RimThreadedHarmony.harmony.Patch(Method(original, "SetFloat", new[] { typeof(string), typeof(float) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "SetFloat", new[] { typeof(string), typeof(float) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(SetStringFloat))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "SetFloat", new[] { typeof(int), typeof(float) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "SetFloat", new[] { typeof(int), typeof(float) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(SetIntFloat))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "SetInt", new[] { typeof(string), typeof(int) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "SetInt", new[] { typeof(string), typeof(int) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(SetStringInt))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "SetInt", new[] { typeof(int), typeof(int) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "SetInt", new[] { typeof(int), typeof(int) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(SetIntInt))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "get_mainTexture", Type.EmptyTypes),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "get_mainTexture", Type.EmptyTypes),
                 prefix: new HarmonyMethod(Method(patched, nameof(get_mainTexture))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "GetTextureScaleAndOffsetImpl", new[] { typeof(int) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "GetTextureScaleAndOffsetImpl", new[] { typeof(int) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(GetTextureScaleAndOffsetImpl))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "HasProperty", new[] { typeof(string) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "HasProperty", new[] { typeof(string) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(HasProperty))));
-            RimThreadedHarmony.harmony.Patch(Method(original, "SetTextureOffsetImpl", new[] { typeof(int), typeof(Vector2) }),
+            RimThreadedHarmony.Harmony.Patch(Method(original, "SetTextureOffsetImpl", new[] { typeof(int), typeof(Vector2) }),
                 prefix: new HarmonyMethod(Method(patched, nameof(SetTextureOffsetImpl))));
         }
 
@@ -112,7 +112,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcHasProperty2, new object[] { __instance, name } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (bool)threadInfo.safeFunctionResult;
             return false;
@@ -122,7 +122,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcget_mainTexture2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Texture)threadInfo.safeFunctionResult;
             return false;
@@ -132,7 +132,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcGetTextureScaleAndOffsetImpl2, new object[] { __instance, name } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Vector4)threadInfo.safeFunctionResult;
             return false;
@@ -142,7 +142,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSetTextureOffsetImpl2, new object[] { __instance, name, offset } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -151,7 +151,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSetStringFloat2, new object[] { __instance, name, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -160,7 +160,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSetIntFloat2, new object[] { __instance, nameID, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -169,7 +169,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSetStringInt2, new object[] { __instance, name, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -178,7 +178,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSetIntInt2, new object[] { __instance, nameID, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

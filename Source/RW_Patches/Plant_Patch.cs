@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using RimThreaded.Utilities;
 using RimWorld;
 using System;
 using System.Collections.Generic;
@@ -9,6 +10,7 @@ using static HarmonyLib.AccessTools;
 
 namespace RimThreaded.RW_Patches
 {
+    [HarmonyPatch(typeof(Plant))]
     class Plant_Patch
     {
         internal static void RunNonDestructivePatches()
@@ -19,16 +21,27 @@ namespace RimThreaded.RW_Patches
             RimThreadedHarmony.Postfix(original, patched, nameof(set_Growth));
             RimThreadedHarmony.Transpile(original, patched, nameof(TickLong));
         }
-        public static void PlantCollected(Plant __instance, Pawn by)
+
+        [NonDestructivePatch]
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(Plant.PlantCollected))]
+        public static void PlantCollected(Plant __instance, Pawn by, PlantDestructionMode plantDestructionMode)
         {
             JumboCell.ReregisterObject(__instance.Map, __instance.Position, RimThreaded.plantHarvest_Cache);
         }
+
+        [NonDestructivePatch]
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(Plant.Growth), methodType: MethodType.Setter)]
         public static void set_Growth(Plant __instance, float value)
         {
             if (__instance.Map != null && __instance.LifeStage == PlantLifeStage.Mature)
                 JumboCell.ReregisterObject(__instance.Map, __instance.Position, RimThreaded.plantHarvest_Cache);
         }
 
+        [NonDestructivePatch]
+        [HarmonyTranspiler]
+        [HarmonyPatch(nameof(Plant.TickLong))]
         public static IEnumerable<CodeInstruction> TickLong(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
         {
             foreach (CodeInstruction instruction in instructions)

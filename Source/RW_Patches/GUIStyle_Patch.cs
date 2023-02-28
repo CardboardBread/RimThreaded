@@ -39,7 +39,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             //Func<object[], object> FuncCalcHeight = p => __instance.CalcHeight((GUIContent)p[0], (float)p[1]);
             threadInfo.safeFunctionRequest = new object[] { FuncCalcHeight, new object[] { __instance, content, width } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (float)threadInfo.safeFunctionResult;
             return false;
@@ -50,7 +50,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             Func<object[], object> FuncCalcSize2 = p => __instance.CalcSize((GUIContent)p[1]);
             threadInfo.safeFunctionRequest = new object[] { FuncCalcSize2, new object[] { __instance, content } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Vector2)threadInfo.safeFunctionResult;
             return false;

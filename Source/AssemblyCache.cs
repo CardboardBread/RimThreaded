@@ -39,7 +39,7 @@ namespace RimThreaded
             {
                 Log.Message("TryGetFromCache: " + ModuleVersionId);
             }
-            string CacheFolder = Path.Combine(RimThreadedMod.replacementsFolder, "Caches");
+            string CacheFolder = Path.Combine(RimThreadedMod.AssembliesFolder, "Caches");
             Directory.CreateDirectory(CacheFolder);
             CurrentMethodPath = Path.Combine(CacheFolder, ModuleVersionId + ".json");
             if (!File.Exists(CurrentMethodPath))
@@ -74,7 +74,7 @@ namespace RimThreaded
         }
         public static void AddToCache(string AssemblyName, MethodBase method, Type type)
         {
-            string CacheFolder = Path.Combine(RimThreadedMod.replacementsFolder, "Caches");
+            string CacheFolder = Path.Combine(RimThreadedMod.AssembliesFolder, "Caches");
             SerializableMethod SMethod = new SerializableMethod
             {
                 Name = method.Name,

@@ -67,7 +67,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSet_localPosition2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -80,7 +80,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSet_parent2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -90,7 +90,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionSet_position2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -100,7 +100,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionGet_position2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (Vector3)threadInfo.safeFunctionResult;
             return false;
@@ -111,7 +111,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return __instance.position;
             threadInfo.safeFunctionRequest = new object[] { ActionGet_position2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (Vector3)threadInfo.safeFunctionResult;
         }
@@ -124,7 +124,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSet_position2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
         }
 

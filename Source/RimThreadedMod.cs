@@ -7,26 +7,34 @@ using UnityEngine;
 using System.Reflection.Emit;
 using System.Linq;
 using System.IO;
-using static HarmonyLib.AccessTools;
 using System.Security.Permissions;
 using System.Security;
+using System.Runtime;
 
 namespace RimThreaded 
 { 
+    // Class for handling all the mod-relevant actions/information of RimThreaded.
     class RimThreadedMod : Mod
     {
-        public static RimThreadedSettings Settings;
-        public static string replacementsFolder;
-        public static string replacementsJsonPath;
-        readonly string RWversion = "1.4";
+        internal static Assembly Assembly = Assembly.GetAssembly(typeof(RimThreaded));
+        internal static IEnumerable<Type> LocalTypes = AccessTools.GetTypesFromAssembly(Assembly);
+
+        public static RimThreadedMod Instance => LoadedModManager.GetMod<RimThreadedMod>();
+
+        public RimThreadedSettings Settings => GetSettings<RimThreadedSettings>();
+        public string GameVersion => Content.ModMetaData.SupportedVersionsReadOnly.First().ToString(); // TODO: verify this is correct.
+        public string AssembliesFolder => Path.Combine(Content.RootDir, GameVersion, "Assemblies");
+        public string ReplacementsJsonPath => Path.Combine(AssembliesFolder, $"replacements_{GameVersion}.json");
+        public string ReplacementsJsonText => File.ReadAllText(ReplacementsJsonPath);
+
+        public List<object> ModConflicts;
+        public RimThreadedHarmony Harmony;
+
         public RimThreadedMod(ModContentPack content) : base(content)
         {
-            Settings = GetSettings<RimThreadedSettings>();
-
-            replacementsFolder = Path.Combine(content.RootDir, RWversion, "Assemblies");
-            replacementsJsonPath = Path.Combine(replacementsFolder, "replacements_" + RWversion + ".json");
-            //RimThreaded.Start();
+            Harmony = new(content.PackageId);
         }
+
         public override void DoSettingsWindowContents(Rect inRect)
         {
             if (Settings.modsText.Length == 0)
@@ -48,46 +56,6 @@ namespace RimThreaded
             RimThreaded.timeSpeedUltrafast = Settings.timeSpeedUltrafast;
 
         }
-
-        //private string getAllStaticFields()
-        //{
-        //    string result = "";
-        //    HashSet<FieldInfo> fieldInfos = new HashSet<FieldInfo>();
-        //    foreach(Type type in Assembly.Load("Assembly-CSharp").GetTypes())
-        //    {
-        //        foreach(FieldInfo fieldInfo in type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static))
-        //        {
-        //            fieldInfos.Add(fieldInfo);
-        //            //result += type.FullName + " " + fieldInfo.FieldType.Attributes + " " + fieldInfo.Name + "\n";
-        //        }
-        //    }
-        //    foreach (Type type in Assembly.Load("Assembly-CSharp").GetTypes())
-        //    {
-        //        foreach (MethodInfo methodInfo in type.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance))
-        //        {
-        //            List<CodeInstruction> codeInstructions = PatchProcessor.GetOriginalInstructions(methodInfo, out ILGenerator iLGenerator);
-        //            int i = 0;
-        //            while(i < codeInstructions.Count)
-        //            {
-        //                if(codeInstructions[i].opcode == OpCodes.Ldsfld) {
-        //                    if (codeInstructions[i + 1].opcode == OpCodes.Call || codeInstructions[i + 1].opcode == OpCodes.Callvirt)
-        //                    {
-        //                        MethodInfo instructionMethodInfo = (MethodInfo)codeInstructions[i + 1].operand;
-        //                        if (instructionMethodInfo.Name.Equals("Clear") && instructionMethodInfo.DeclaringType.FullName.Contains("System.Collections"))
-        //                        {
-        //                            FieldInfo fieldInfo = (FieldInfo)codeInstructions[i].operand;
-        //                            Log.Message(fieldInfo.FieldType.Name + " " + fieldInfo.DeclaringType.FullName + "." + fieldInfo.Name);
-        //                        }
-        //                    }
-        //                }
-        //                i++;
-        //            }
-        //        }
-        //    }
-        //    MethodBase methodBase = null;
-        //    methodBase.GetMethodBody().GetILAsByteArray();
-        //    return result;
-        //}
 
         public static string GetPotentialModConflicts()
         {
@@ -112,7 +80,7 @@ namespace RimThreaded
                             continue;
                         }
 #endif
-                        if (patch.owner.Equals("majorhoff.rimthreaded") && !RimThreadedHarmony.nonDestructivePrefixes.Contains(patch.PatchMethod) && (patches.Prefixes.Count > 1 || patches.Postfixes.Count > 0 || patches.Transpilers.Count > 0))
+                        if (patch.owner.Equals(Instance.Content.PackageId) && !RimThreadedHarmony.nonDestructivePrefixes.Contains(patch.PatchMethod) && (patches.Prefixes.Count > 1 || patches.Postfixes.Count > 0 || patches.Transpilers.Count > 0))
                         {
                             isRimThreadedPrefixed = true;
                             modsText1 = "\n  ---Patch method: " + patch.PatchMethod.DeclaringType.FullName + " " + patch.PatchMethod + "---\n";
@@ -126,9 +94,9 @@ namespace RimThreaded
                         bool headerPrinted = false;
                         foreach (Patch patch in sortedPrefixes)
                         {
-                            if (patch.owner.Equals("majorhoff.rimthreaded"))
+                            if (patch.owner.Equals(Instance.Content.PackageId))
                                 rimThreadedPatchFound = true;
-                            if (!patch.owner.Equals("majorhoff.rimthreaded") && rimThreadedPatchFound)
+                            if (!patch.owner.Equals(Instance.Content.PackageId) && rimThreadedPatchFound)
                             {
                                 //Settings.modsText += "method: " + patch.PatchMethod + " - ";
                                 if(!headerPrinted)
@@ -156,8 +124,35 @@ namespace RimThreaded
                     }
                 }
             }
+
+            foreach (var original in Harmony.GetAllPatchedMethods())
+            {
+                var patches = Harmony.GetPatchInfo(original);
+                if (patches != null)
+                {
+                    var prefixes = patches.Prefixes.ToArray();
+                    var sortedPatches = PatchProcessor.GetSortedPatchMethods(original, prefixes);
+
+                    var valid = patches.Prefixes.Count > 1 || patches.Postfixes.Count > 0 || patches.Transpilers.Count > 0;
+                    var hasOwnedPrefix = false;
+
+                    foreach (var patch in prefixes)
+                    {
+                        if (patch.owner == Instance.Content.PackageId &&
+                            !RimThreadedHarmony.nonDestructivePrefixes.Contains(patch.PatchMethod) &&
+                            valid)
+                        {
+                            hasOwnedPrefix = true;
+                            yield return (patch, patch.PatchMethod, patch.priority);
+                            break;
+                        }
+                    }
+                }
+            }
+
             return modsText;
         }
+
         public static void ExportTranspiledMethods()
         {
             AssemblyName aName = new AssemblyName("RimWorldTranspiles");
@@ -552,11 +547,8 @@ namespace RimThreaded
             return methodInfo;
         }
 #endif
-        public override string SettingsCategory()
-        {
-            return "RimThreaded";
-        }
 
+        public override string SettingsCategory() => GetType().Namespace;
     }
 
 }

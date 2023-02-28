@@ -25,7 +25,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { ActionAudioSourceStop, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -40,7 +40,7 @@ namespace RimThreaded.RW_Patches
             }
             Func<object[], object> FuncGetVolume = parameters => __instance.volume;
             threadInfo.safeFunctionRequest = new object[] { FuncGetVolume, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (float)threadInfo.safeFunctionResult;
         }
@@ -63,7 +63,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetLoop2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -85,7 +85,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionPlay2, new object[] { __instance } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -107,7 +107,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetMute2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -129,7 +129,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetSpatialBlend2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -151,7 +151,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetMaxDistance2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -174,7 +174,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetMinDistance2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -199,7 +199,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSetPitch2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -224,7 +224,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSet_volume2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -248,7 +248,7 @@ namespace RimThreaded.RW_Patches
                 return;
             }
             threadInfo.safeFunctionRequest = new object[] { ActionSet_clip2, new object[] { __instance, value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }

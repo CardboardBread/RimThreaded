@@ -38,13 +38,13 @@ namespace RimThreaded.RW_Patches
             MethodInfo originalPawnGetAllThingsGeneric = GetAllThingsRecursivelyT.MakeGenericMethod(new Type[] { typeof(Pawn) });
             MethodInfo patchedPawnGetAllThings = patched.GetMethod(nameof(GetAllThingsRecursively_Pawn));
             HarmonyMethod prefixPawnGetAllThings = new HarmonyMethod(patchedPawnGetAllThings);
-            RimThreadedHarmony.harmony.Patch(originalPawnGetAllThingsGeneric, prefix: prefixPawnGetAllThings);
+            RimThreadedHarmony.Harmony.Patch(originalPawnGetAllThingsGeneric, prefix: prefixPawnGetAllThings);
 
             //MethodInfo originalThingGetAllThings = methods[17];
             MethodInfo originalThingGetAllThingsGeneric = GetAllThingsRecursivelyT.MakeGenericMethod(new Type[] { typeof(Thing) });
             MethodInfo patchedThingGetAllThings = patched.GetMethod(nameof(GetAllThingsRecursively_Thing));
             HarmonyMethod prefixThingGetAllThings = new HarmonyMethod(patchedThingGetAllThings);
-            RimThreadedHarmony.harmony.Patch(originalThingGetAllThingsGeneric, prefix: prefixThingGetAllThings);
+            RimThreadedHarmony.Harmony.Patch(originalThingGetAllThingsGeneric, prefix: prefixThingGetAllThings);
             
         }
 

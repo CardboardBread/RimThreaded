@@ -36,7 +36,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return MeshMakerPlanes.NewPlaneMesh(size, flipped, backLift, twist);
             threadInfo.safeFunctionRequest = new object[] { FuncNewPlaneMesh2, new object[] { size, flipped, backLift, twist } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (Mesh)threadInfo.safeFunctionResult;
         }

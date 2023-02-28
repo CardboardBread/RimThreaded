@@ -69,7 +69,7 @@ namespace RimThreaded.Mod_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return SafeBlit(texture, blitRect, rtSize);
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { texture, blitRect, rtSize } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (Texture2D)threadInfo.safeFunctionResult;
         }

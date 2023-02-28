@@ -26,7 +26,7 @@ namespace RimThreaded.RW_Patches
             RimThreadedHarmony.Prefix(original, patched, nameof(GC));
             RimThreadedHarmony.Prefix(original, patched, nameof(Destroy));
             HarmonyMethod transpilerMethod = new HarmonyMethod(Method(patched, nameof(PawnTextureAtlas)));
-            RimThreadedHarmony.harmony.Patch(Constructor(original), transpiler: transpilerMethod);
+            RimThreadedHarmony.Harmony.Patch(Constructor(original), transpiler: transpilerMethod);
         }
 
         internal static void InitializeThreadStatics()

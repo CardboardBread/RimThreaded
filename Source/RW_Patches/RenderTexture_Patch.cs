@@ -44,7 +44,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { getTemporaryImpl2, new object[] { width, height, depthBuffer, format, antiAliasing, memorylessMode, vrUsage, useDynamicScale } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (RenderTexture)threadInfo.safeFunctionResult;
             return false;
@@ -63,7 +63,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { funcGetCompatibleFormat2, new object[] { renderTextureFormat, readWrite } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (GraphicsFormat)threadInfo.safeFunctionResult;
             return false;
@@ -88,7 +88,7 @@ namespace RimThreaded.RW_Patches
             }
 
             threadInfo.safeFunctionRequest = new object[] { ActionReleaseTemporary2, new object[] { temp } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return;
         }
@@ -102,7 +102,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return true;
             threadInfo.safeFunctionRequest = new object[] { FuncSetActive, new object[] { value } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }
@@ -119,7 +119,7 @@ namespace RimThreaded.RW_Patches
                 return true;
 
             threadInfo.safeFunctionRequest = new object[] { FuncGetActive2, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (RenderTexture)threadInfo.safeFunctionResult;
             return false;

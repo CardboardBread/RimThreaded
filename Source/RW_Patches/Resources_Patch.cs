@@ -17,7 +17,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return Resources.Load(path, type);
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { path, type } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (UnityEngine.Object)threadInfo.safeFunctionResult;
         }

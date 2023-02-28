@@ -30,7 +30,7 @@ namespace RimThreaded.RW_Patches
             MethodInfo originalRemoveAllGeneric = originalRemoveAll.MakeGenericMethod(typeof(object), typeof(object));
             MethodInfo patchedRemoveAll = patched.GetMethod(nameof(RemoveAll_Object_Object_Patch));
             HarmonyMethod prefixRemoveAll = new HarmonyMethod(patchedRemoveAll);
-            RimThreadedHarmony.harmony.Patch(originalRemoveAllGeneric, prefix: prefixRemoveAll);
+            RimThreadedHarmony.Harmony.Patch(originalRemoveAllGeneric, prefix: prefixRemoveAll);
 
         }
 

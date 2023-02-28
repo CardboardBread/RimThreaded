@@ -23,7 +23,7 @@ namespace RimThreaded.RW_Patches
             }
             Func<object[], object> safeFunction = parameters => __instance.ToString();
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (string)threadInfo.safeFunctionResult;
             return false;
@@ -36,7 +36,7 @@ namespace RimThreaded.RW_Patches
             }
             Action<object[]> safeActionDestroy = parameters => UnityEngine.Object.Destroy(__instance);
             threadInfo.safeFunctionRequest = new object[] { safeActionDestroy, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return false;
         }

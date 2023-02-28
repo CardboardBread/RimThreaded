@@ -10,32 +10,41 @@ using RimThreaded.Mod_Patches;
 using RimWorld;
 using UnityEngine;
 using Verse.Sound;
-using static HarmonyLib.AccessTools;
 using Verse.AI;
 using System.IO;
 using Newtonsoft.Json;
 using RimThreaded.RW_Patches;
+using RimThreaded.Utilities;
 
 namespace RimThreaded
 {
-
-    public class RimThreadedHarmony
+	// Class for handling all of RimThreaded's complex interaction with Harmony.
+	// Class instance is a wrapper for a Harmony instance, allowing patching only specific groups (non-destructive vs destructive).
+    public class RimThreadedHarmony : Harmony
 	{
-		public static Harmony harmony = new Harmony("majorhoff.rimthreaded");
+        internal static List<Assembly> AllAssemblies = AccessTools.AllAssemblies().ToList();
+
+		public static RimThreadedHarmony Instance = RimThreadedMod.Instance.Harmony;
 
 		public static FieldInfo cachedStoreCell;
 		public static HashSet<MethodInfo> nonDestructivePrefixes = new HashSet<MethodInfo>();
-		public static List<Assembly> assemblies;
+		
+		static Replacements ReplacementsInst => JsonConvert.DeserializeObject<Replacements>(RimThreadedMod.Instance.ReplacementsJsonText);
 
-		static RimThreadedHarmony()
+        static RimThreadedHarmony()
 		{
 			if (Prefs.LogVerbose)
 			{
 				Harmony.DEBUG = true;
+				Log.Message("Harmony Full Debugging mode enabled.");
 			}
-			Log.Message("RimThreaded " + Assembly.GetExecutingAssembly().GetName().Version + "  is patching methods...");
+			Log.Message($"RimThreaded {RimThreadedMod.Assembly.GetName().Version} is patching methods...");
 
-			LoadFieldReplacements();
+            NonDestructivePatchAll();
+            DestructivePatchAll();
+            // TODO: add a AttributePatchAll for all the patches without extra attributes
+
+            LoadFieldReplacements();
 			AddAdditionalReplacements();
 			ApplyFieldReplacements();
 			PatchDestructiveFixes();
@@ -55,7 +64,29 @@ namespace RimThreaded
 			}
 		}
 
-		private static void AddAdditionalReplacements()
+		internal List<PatchClassProcessor> destructiveProcessors = new();
+        internal List<PatchClassProcessor> nonDestructiveProcessors = new();
+        internal List<PatchClassProcessor> defaultProcessors = new();
+
+        public RimThreadedHarmony(string id) : base(id)
+        {
+            foreach (var type in RimThreadedMod.LocalTypes)
+            {
+                var dp = this.FilteredProcessor(type, m => m.HasAttribute<DestructivePatchAttribute>());
+                var ndp = this.FilteredProcessor(type, m => m.HasAttribute<NonDestructivePatchAttribute>());
+				var def = this.FilteredProcessor(type, m => !m.HasAttribute<DestructivePatchAttribute>() && !m.HasAttribute<NonDestructivePatchAttribute>());
+
+				destructiveProcessors.Add(dp);
+				nonDestructiveProcessors.Add(ndp);
+				defaultProcessors.Add(def);
+            }
+        }
+
+        internal void NonDestructivePatchAll() => nonDestructiveProcessors.Do(pcp => pcp.Patch());
+		internal void DestructivePatchAll() => destructiveProcessors.Do(pcp => pcp.Patch());
+        internal void DefaultPatchAll() => defaultProcessors.Do(pcp => pcp.Patch());
+
+        private static void AddAdditionalReplacements()
 		{
 			SimplePool_Patch_RunNonDestructivePatches();
 			GraphicDatabase_Patch.RunNonDestructivePatches();
@@ -138,33 +169,12 @@ namespace RimThreaded
 		static Replacements replacements;
 		private static void LoadFieldReplacements()
 		{
-			assemblies = (from a in AppDomain.CurrentDomain.GetAssemblies()
-						  where !a.FullName.StartsWith("Microsoft.VisualStudio")
-						  select a).ToList();
 			//string replacementsJsonPath = Path.Combine(((Mod)RimThreadedMod).intContent.RootDir, "replacements.json"); 
 
-			string jsonString = File.ReadAllText(RimThreadedMod.replacementsJsonPath);
+			string jsonString = File.ReadAllText(RimThreadedMod.Instance.ReplacementsJsonPath);
 			replacements = JsonConvert.DeserializeObject<Replacements>(jsonString);
 
-			//IEnumerable<Assembly> source = from a in AppDomain.CurrentDomain.GetAssemblies()
-			//                               where !a.FullName.StartsWith("Microsoft.VisualStudio")
-			//                               select a;
-			//foreach (Assembly a in source)
-			//{
-			//    Type[] b = GetTypesFromAssembly(a);
-			//    if (a.ManifestModule.Name.Equals("Assembly-CSharp.dll"))
-			//    {
-			//        foreach (Type c in b)
-			//        {
-			//            if (c.FullName.Contains("BFSW"))
-			//            {
-			//                Log.Message(c.FullName);
-			//                //Console.WriteLine(c.FullName);
-			//            }
-			//        }
-			//    }
-			//}
-			MethodInfo initializer = Method(typeof(RimThreaded), nameof(RimThreaded.InitializeAllThreadStatics));
+			MethodInfo initializer = AccessTools.Method(typeof(RimThreaded), nameof(RimThreaded.InitializeAllThreadStatics));
 			ConstructorInfo threadStaticConstructor = typeof(ThreadStaticAttribute).GetConstructor(new Type[0]);
 			CustomAttributeBuilder attributeBuilder = new CustomAttributeBuilder(threadStaticConstructor, new object[0]);
 			AssemblyName aName = new AssemblyName("RimThreadedReplacements");
@@ -229,7 +239,7 @@ namespace RimThreaded
 					Type newFieldType = tb.CreateType();
 					MethodInfo mb2 = Method(newFieldType, "InitializeThreadStatics");
 					HarmonyMethod pf = new HarmonyMethod(mb2);
-					harmony.Patch(initializer, postfix: pf);
+					Harmony.Patch(initializer, postfix: pf);
 				}
 			}
 			if (Prefs.LogVerbose)
@@ -251,7 +261,7 @@ namespace RimThreaded
 				"GiddyUpCore.dll",
 				"SpeakUp.dll"
 			};
-			foreach (Assembly assembly in assemblies)
+			foreach (Assembly assembly in AllAssemblies)
 			{
 				//Log.Message(assembly.ManifestModule.ScopeName);
 				if (AssembliesToPatch.Contains(assembly.ManifestModule.ScopeName))
@@ -451,6 +461,7 @@ namespace RimThreaded
 			}
 			return instructionsMatch;
 		}
+
 		public static void AddBreakDestination(List<CodeInstruction> instructionsList, int currentInstructionIndex, Label breakDestination)
 		{
 			//Since we are going to break inside of some kind of loop, we need to find out where to jump/break to
@@ -702,12 +713,12 @@ namespace RimThreaded
 				}
 				Log.Message("RimThreaded is done TranspilingFieldReplacements for method: " + original.DeclaringType.FullName + "." + original.Name);
 			}
-			harmony.Patch(original, transpiler: replaceFieldsHarmonyTranspiler);
+			Harmony.Patch(original, transpiler: replaceFieldsHarmonyTranspiler);
 		}
 
 		public static void TranspileLockAdd3(Type original, string methodName, Type[] origType = null)
 		{
-			harmony.Patch(Method(original, methodName, origType), transpiler: add3Transpiler);
+			Harmony.Patch(Method(original, methodName, origType), transpiler: add3Transpiler);
 		}
 		public static void Prefix(Type original, Type patched, string methodName, Type[] origType = null, bool destructive = true, int priority = 0, string finalizer = null, string PatchMethod = null, bool NullPatchType = false)
 		{
@@ -753,7 +764,7 @@ namespace RimThreaded
 				FinalizerH = new HarmonyMethod(Finalizer, priority);
 			}
 
-			harmony.Patch(oMethod, prefix: new HarmonyMethod(pMethod, priority), finalizer: FinalizerH);
+			Harmony.Patch(oMethod, prefix: new HarmonyMethod(pMethod, priority), finalizer: FinalizerH);
 			if (!destructive)
 			{
 				nonDestructivePrefixes.Add(pMethod);
@@ -766,7 +777,7 @@ namespace RimThreaded
 			if (patchedMethodName == null)
 				patchedMethodName = originalMethodName;
 			MethodInfo pMethod = Method(patched, patchedMethodName);
-			harmony.Patch(oMethod, postfix: new HarmonyMethod(pMethod));
+			Harmony.Patch(oMethod, postfix: new HarmonyMethod(pMethod));
 		}
 
 		public static void Transpile(Type original, Type patched, string methodName, Type[] origType = null, string[] harmonyAfter = null, int priority = 0, string patchMethod = null)
@@ -781,7 +792,7 @@ namespace RimThreaded
 			};
 			try
 			{
-				harmony.Patch(oMethod, transpiler: transpilerMethod);
+				Harmony.Patch(oMethod, transpiler: transpilerMethod);
 			}
 			catch (Exception e)
 			{
@@ -800,7 +811,7 @@ namespace RimThreaded
 			};
 			try
 			{
-				harmony.Patch(oMethod, transpiler: transpilerMethod);
+				Harmony.Patch(oMethod, transpiler: transpilerMethod);
 			}
 			catch (Exception e)
 			{
@@ -810,7 +821,7 @@ namespace RimThreaded
 		public static void TranspileMethodLock(Type original, string methodName, Type[] origType = null)
 		{
 			MethodInfo oMethod = Method(original, methodName, origType);
-			harmony.Patch(oMethod, transpiler: methodLockTranspiler);
+			Harmony.Patch(oMethod, transpiler: methodLockTranspiler);
 		}
 
 

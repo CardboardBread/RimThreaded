@@ -22,7 +22,7 @@ namespace RimThreaded.RW_Patches
                 return true;
             Func<object[], object> safeFunction = parameters => __instance.GetSubMesh((Material)parameters[0]);
             threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { material } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             __result = (LayerSubMesh)threadInfo.safeFunctionResult;
             return false;

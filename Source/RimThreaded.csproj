@@ -12,7 +12,7 @@
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <TargetFramework>net472</TargetFramework>
 		<Version>2.7.2</Version>
-		<Copyright>Copyright ©  2022</Copyright>
+		<Copyright>Copyright © 2022</Copyright>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
     <NuGetPackageImportStamp>
@@ -21,31 +21,37 @@
     <Authors>Caleb Seelhoff</Authors>
     <FileVersion>2.7.2.0</FileVersion>
     <Configurations>Debug;Release</Configurations>
+    <UserSecretsId>2c638e9a-1d0c-4c4f-96b3-b49ddef9aa97</UserSecretsId>
+	<LangVersion>latest</LangVersion>
+	<IsPublishable>False</IsPublishable>
+	<ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+	<GenerateDocumentationFile>True</GenerateDocumentationFile>
+	<DocumentationFile />
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <PubliciseOutputPath>..\Dependencies\1.4\</PubliciseOutputPath>
     <DebugSymbols>true</DebugSymbols>
     <DebugType>portable</DebugType>
     <Optimize>false</Optimize>
-    <OutputPath>..\Debug\1.4\Assemblies\</OutputPath>
-    <DefineConstants>TRACE;DEBUG</DefineConstants>
+    <OutputPath>bin\Debug\</OutputPath>
+    <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <DocumentationFile>
-    </DocumentationFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+	<LangVersion>latest</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
     <PubliciseOutputPath>..\Dependencies\1.4\</PubliciseOutputPath>
     <DebugType>portable</DebugType>
     <Optimize>true</Optimize>
-    <OutputPath>..\RimThreaded\1.4\Assemblies\</OutputPath>
+    <OutputPath>..\1.4\Assemblies\</OutputPath>
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <DebugSymbols>true</DebugSymbols>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <GenerateSerializationAssemblies>Auto</GenerateSerializationAssemblies>
+	<LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <Compile Remove="Properties\**" />
@@ -71,27 +77,27 @@
     </ItemGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp">
-      <HintPath>..\Dependencies\1.4\Assembly-CSharp.dll</HintPath>
+      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\Assembly-CSharp.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.dll</HintPath>
-      <Private>false</Private>
+      <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.AudioModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.AudioModule.dll</HintPath>
-      <Private>false</Private>
+      <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.CoreModule.dll</HintPath>
-      <Private>false</Private>
+      <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.IMGUIModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.IMGUIModule.dll</HintPath>
-      <Private>false</Private>
+      <Private>False</Private>
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>C:\Program Files (x86)\Steam\steamapps\common\RimWorld\RimWorldWin64_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
-      <Private>false</Private>
+      <Private>False</Private>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -101,52 +107,52 @@
   </ItemGroup>
   	<ItemGroup>
   	  <Reference Update="mscorlib">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Core">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Data">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Drawing">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.IO.Compression.FileSystem">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Numerics">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Runtime.Serialization">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Xml">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ItemGroup>
   	  <Reference Update="System.Xml.Linq">
-  	    <Private>false</Private>
+  	    <Private>False</Private>
   	  </Reference>
   	</ItemGroup>
   	<ProjectExtensions><VisualStudio><UserProperties /></VisualStudio></ProjectExtensions>

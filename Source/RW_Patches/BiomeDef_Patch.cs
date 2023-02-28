@@ -1,20 +1,22 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using RimThreaded.Utilities;
 using RimWorld;
 using Verse;
 
 namespace RimThreaded.RW_Patches
 {
-
     public class BiomeDef_Patch
     {
+        [DestructivePatch]
         internal static void RunDestructivePatches()
         {
-            Type original = typeof(BiomeDef);
-            Type patched = typeof(BiomeDef_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "CachePlantCommonalitiesIfShould");
+            RimThreadedHarmony.Prefix(original: typeof(BiomeDef),
+                                      patched: typeof(BiomeDef_Patch),
+                                      methodName: nameof(BiomeDef.CachePlantCommonalitiesIfShould));
         }
+
         public static bool CachePlantCommonalitiesIfShould(BiomeDef __instance)
         {
             if (__instance.cachedPlantCommonalities != null)

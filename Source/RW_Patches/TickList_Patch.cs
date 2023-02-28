@@ -1,4 +1,5 @@
 ﻿using HarmonyLib;
+using RimThreaded.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,8 +11,13 @@ using static HarmonyLib.AccessTools;
 
 namespace RimThreaded.RW_Patches
 {
+    [HarmonyPatch(typeof(TickList))]
     public class TickList_Patch
     {
+        static TickList_Patch()
+        {
+
+        }
 
         public static void RunNonDestructivePatches()
         {
@@ -23,7 +29,19 @@ namespace RimThreaded.RW_Patches
             RimThreadedHarmony.Postfix(original, patched, nameof(TickList.Tick), nameof(TickPostfix));
         }
 
+        [NonDestructivePatch]
+        [HarmonyTranspiler]
+        [HarmonyPatch(nameof(TickList.RegisterThing))]
+        public static IEnumerable<CodeInstruction> RegisterThing(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator) => RimThreadedHarmony.WrapMethodInInstanceLock(instructions, iLGenerator);
 
+        [NonDestructivePatch]
+        [HarmonyTranspiler]
+        [HarmonyPatch(nameof(TickList.DeregisterThing))]
+        public static IEnumerable<CodeInstruction> DeregisterThing(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator) => RimThreadedHarmony.WrapMethodInInstanceLock(instructions, iLGenerator);
+
+        [NonDestructivePatch]
+        [HarmonyPostfix]
+        [HarmonyPatch(nameof(TickList.Tick))]
         public static void TickPostfix(TickList __instance)
         {
             int currentTickInterval = __instance.TickInterval;
@@ -49,6 +67,9 @@ namespace RimThreaded.RW_Patches
             }
         }
 
+        [NonDestructivePatch]
+        [HarmonyTranspiler]
+        [HarmonyPatch(nameof(TickList.Tick))]
         public static IEnumerable<CodeInstruction> Tick(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
         {
             List<CodeInstruction> instructionsList = instructions.ToList();

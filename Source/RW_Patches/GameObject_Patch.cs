@@ -40,7 +40,7 @@ namespace RimThreaded.RW_Patches
             }
 
             threadInfo.safeFunctionRequest = new object[] { ActionGameObject, new object[] { gameObject, name } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
         }
 
@@ -50,11 +50,11 @@ namespace RimThreaded.RW_Patches
             Type patched = typeof(GameObject_Patch);
 
             HarmonyMethod transpilerMethod = new HarmonyMethod(Method(patched, "TranspileGameObjectString"));
-            RimThreadedHarmony.harmony.Patch(Constructor(original,
+            RimThreadedHarmony.Harmony.Patch(Constructor(original,
                     new[] { typeof(string) }), transpiler: transpilerMethod);
-            RimThreadedHarmony.harmony.Patch(Constructor(original,
+            RimThreadedHarmony.Harmony.Patch(Constructor(original,
                     new[] { typeof(string), typeof(Type[]) }), transpiler: transpilerMethod);
-            RimThreadedHarmony.harmony.Patch(Constructor(original,
+            RimThreadedHarmony.Harmony.Patch(Constructor(original,
                     Type.EmptyTypes), transpiler: transpilerMethod);
         }
 
@@ -77,7 +77,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.GetComponent<T>();
             Func<object[], object> FuncGetComponent = parameters => __instance.GetComponent<T>();
             threadInfo.safeFunctionRequest = new object[] { FuncGetComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (T)threadInfo.safeFunctionResult;
         }
@@ -86,7 +86,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.AddComponent<T>();
             Func<object[], object> FuncAddComponent = parameters => __instance.AddComponent<T>();
             threadInfo.safeFunctionRequest = new object[] { FuncAddComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (T)threadInfo.safeFunctionResult;
         }
@@ -95,7 +95,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.GetComponent<AudioReverbFilter>();
             Func<object[], object> FuncGetComponent = parameters => __instance.GetComponent<AudioReverbFilter>();
             threadInfo.safeFunctionRequest = new object[] { FuncGetComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (AudioReverbFilter)threadInfo.safeFunctionResult;
         }
@@ -105,7 +105,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.GetComponent<AudioLowPassFilter>();
             Func<object[], object> FuncGetComponent = parameters => __instance.GetComponent<AudioLowPassFilter>();
             threadInfo.safeFunctionRequest = new object[] { FuncGetComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (AudioLowPassFilter)threadInfo.safeFunctionResult;
         }
@@ -115,7 +115,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.GetComponent<AudioHighPassFilter>();
             Func<object[], object> FuncGetComponent = parameters => __instance.GetComponent<AudioHighPassFilter>();
             threadInfo.safeFunctionRequest = new object[] { FuncGetComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (AudioHighPassFilter)threadInfo.safeFunctionResult;
         }
@@ -125,7 +125,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.GetComponent<AudioEchoFilter>();
             Func<object[], object> FuncGetComponent = parameters => __instance.GetComponent<AudioEchoFilter>();
             threadInfo.safeFunctionRequest = new object[] { FuncGetComponent, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (AudioEchoFilter)threadInfo.safeFunctionResult;
         }
@@ -136,7 +136,7 @@ namespace RimThreaded.RW_Patches
             if (!allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo)) return __instance.transform;
             Func<object[], object> FuncTransform = parameters => __instance.transform;
             threadInfo.safeFunctionRequest = new object[] { FuncTransform, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (Transform)threadInfo.safeFunctionResult;
         }

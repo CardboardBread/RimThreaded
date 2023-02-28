@@ -26,7 +26,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return Time.time;
             threadInfo.safeFunctionRequest = new object[] { FuncGetTime, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (float)threadInfo.safeFunctionResult;
         }
@@ -41,7 +41,7 @@ namespace RimThreaded.RW_Patches
             if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadInfo threadInfo))
                 return Time.realtimeSinceStartup;
             threadInfo.safeFunctionRequest = new object[] { FuncRealtimeSinceStartup, new object[] { } };
-            mainThreadWaitHandle.Set();
+            MainWaitHandle.Set();
             threadInfo.eventWaitStart.WaitOne();
             return (float)threadInfo.safeFunctionResult;
         }
