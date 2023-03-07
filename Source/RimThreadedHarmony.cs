@@ -22,14 +22,17 @@ namespace RimThreaded
 	// Class instance is a wrapper for a Harmony instance, allowing patching only specific groups (non-destructive vs destructive).
     public class RimThreadedHarmony : Harmony
 	{
-        internal static List<Assembly> AllAssemblies = AccessTools.AllAssemblies().ToList();
+        // TODO: prepend with RimThreaded if categories could clash
+        public const string DestructiveCategory = "Destructive";
+        public const string NonstructiveCategory = "NonDestructive";
 
 		public static RimThreadedHarmony Instance = RimThreadedMod.Instance.Harmony;
 
-		public static FieldInfo cachedStoreCell;
-		public static HashSet<MethodInfo> nonDestructivePrefixes = new HashSet<MethodInfo>();
-		
-		static Replacements ReplacementsInst => JsonConvert.DeserializeObject<Replacements>(RimThreadedMod.Instance.ReplacementsJsonText);
+		//public static FieldInfo cachedStoreCell;
+		//public static HashSet<MethodInfo> nonDestructivePrefixes = new HashSet<MethodInfo>();
+
+		public static Type DefaultPatchCategory = typeof(RimThreadedHarmony);
+		//static Replacements ReplacementsInst => JsonConvert.DeserializeObject<Replacements>(RimThreadedMod.Instance.ReplacementsJsonText);
 
         static RimThreadedHarmony()
 		{
@@ -40,16 +43,16 @@ namespace RimThreaded
 			}
 			Log.Message($"RimThreaded {RimThreadedMod.Assembly.GetName().Version} is patching methods...");
 
-            NonDestructivePatchAll();
-            DestructivePatchAll();
+            //NonDestructivePatchAll();
+            //DestructivePatchAll();
             // TODO: add a AttributePatchAll for all the patches without extra attributes
 
-            LoadFieldReplacements();
-			AddAdditionalReplacements();
-			ApplyFieldReplacements();
-			PatchDestructiveFixes();
-			PatchNonDestructiveFixes();
-			PatchModCompatibility(); 
+            //LoadFieldReplacements();
+			//AddAdditionalReplacements();
+			//ApplyFieldReplacements();
+			//PatchDestructiveFixes();
+			//PatchNonDestructiveFixes();
+			//PatchModCompatibility(); 
 			//if (Prefs.LogVerbose)
 			//{
 				//RimThreadedMod.exportTranspiledMethods();
@@ -64,9 +67,8 @@ namespace RimThreaded
 			}
 		}
 
-		internal List<PatchClassProcessor> destructiveProcessors = new();
-        internal List<PatchClassProcessor> nonDestructiveProcessors = new();
-        internal List<PatchClassProcessor> defaultProcessors = new();
+		internal readonly Dictionary<Type, List<PatchClassProcessor>> groupedClassPatches;
+        internal readonly Dictionary<Type, List<PatchProcessor>> groupedPatches;
 
         public RimThreadedHarmony(string id) : base(id)
         {
@@ -76,15 +78,48 @@ namespace RimThreaded
                 var ndp = this.FilteredProcessor(type, m => m.HasAttribute<NonDestructivePatchAttribute>());
 				var def = this.FilteredProcessor(type, m => !m.HasAttribute<DestructivePatchAttribute>() && !m.HasAttribute<NonDestructivePatchAttribute>());
 
-				destructiveProcessors.Add(dp);
-				nonDestructiveProcessors.Add(ndp);
-				defaultProcessors.Add(def);
+				groupedClassPatches.NewValueIfAbsent(typeof(DestructivePatchAttribute)).Add(dp);
+                groupedClassPatches.NewValueIfAbsent(typeof(NonDestructivePatchAttribute)).Add(ndp);
+                groupedClassPatches.NewValueIfAbsent(DefaultPatchCategory).Add(def);
             }
         }
 
-        internal void NonDestructivePatchAll() => nonDestructiveProcessors.Do(pcp => pcp.Patch());
-		internal void DestructivePatchAll() => destructiveProcessors.Do(pcp => pcp.Patch());
-        internal void DefaultPatchAll() => defaultProcessors.Do(pcp => pcp.Patch());
+        // Execute all patches in the non-destructive category.
+        public void NonDestructivePatchAll()
+        {
+            groupedClassPatches.NewValueIfAbsent(typeof(NonDestructivePatchAttribute)).Do(pcp => pcp.Patch());
+			groupedPatches.NewValueIfAbsent(typeof(NonDestructivePatchAttribute)).Do(pp => pp.Patch());
+        }
+
+		// Execute all patches in the destructive category.
+        public void DestructivePatchAll()
+        {
+            groupedClassPatches.NewValueIfAbsent(typeof(DestructivePatchAttribute)).Do(pcp => pcp.Patch());
+            groupedPatches.NewValueIfAbsent(typeof(DestructivePatchAttribute)).Do(pp => pp.Patch());
+        }
+
+		// Execute the patches that are uncategorized.
+        public void DefaultPatchAll()
+        {
+            groupedClassPatches.NewValueIfAbsent(DefaultPatchCategory).Do(pcp => pcp.Patch());
+            groupedPatches.NewValueIfAbsent(DefaultPatchCategory).Do(pp => pp.Patch());
+        }
+
+        // Copy of Harmony.Patch() which just adds the patch to a category instead of executing it.
+        public PatchProcessor CategoryPatch<A>(MethodBase original,
+                                      HarmonyMethod prefix = null,
+                                      HarmonyMethod postfix = null,
+                                      HarmonyMethod transpiler = null,
+                                      HarmonyMethod finalizer = null) where A : Attribute
+		{
+			var patchProcessor = base.CreateProcessor(original);
+            patchProcessor.AddPrefix(prefix);
+            patchProcessor.AddPostfix(postfix);
+            patchProcessor.AddTranspiler(transpiler);
+            patchProcessor.AddFinalizer(finalizer);
+			groupedPatches.NewValueIfAbsent(typeof(A)).Add(patchProcessor);
+			return patchProcessor;
+        }
 
         private static void AddAdditionalReplacements()
 		{
@@ -143,30 +178,8 @@ namespace RimThreaded
 			//replaceFields.Add(Method(typeof(AudioHighPassFilter), "set_highpassResonanceQ"), Method(typeof(AudioHighPassFilter_Patch), "set_highpassResonanceQ"));
 			replaceFields.Add(Method(typeof(MeshMakerPlanes), "NewPlaneMesh", new Type[] { typeof(Vector2), typeof(bool), typeof(bool), typeof(bool) }), Method(typeof(MeshMakerPlanes_Patch), "NewPlaneMesh"));
 		}
-#pragma warning disable 649
-		[Serializable]
-		class Replacements
-		{
-			public List<ClassReplacement> ClassReplacements;
-		}
 
-		[Serializable]
-		class ClassReplacement
-		{
-			public string ClassName;
-			public bool IgnoreMissing;
-			public List<ThreadStaticDetail> ThreadStatics;
-		}
-		[Serializable]
-		class ThreadStaticDetail
-		{
-			public string FieldName;
-			public string PatchedClassName;
-			public bool SelfInitialized;
-		}
-#pragma warning restore 649
-
-		static Replacements replacements;
+		//static Replacements replacements;
 		private static void LoadFieldReplacements()
 		{
 			//string replacementsJsonPath = Path.Combine(((Mod)RimThreadedMod).intContent.RootDir, "replacements.json"); 
@@ -247,10 +260,12 @@ namespace RimThreaded
 				ab.Save(aName.Name + ".dll");
 			}
 		}
-		public static Dictionary<Type, HashSet<FieldInfo>> untouchedStaticFields = new Dictionary<Type, HashSet<FieldInfo>>();
-		public static HashSet<string> fieldFullNames = new HashSet<string>();
-		public static HashSet<string> allStaticFieldNames = new HashSet<string>();
+
+		//public static Dictionary<Type, HashSet<FieldInfo>> untouchedStaticFields = new Dictionary<Type, HashSet<FieldInfo>>();
+		//public static HashSet<string> fieldFullNames = new HashSet<string>();
+		//public static HashSet<string> allStaticFieldNames = new HashSet<string>();
 		//public static bool intializersReady = false;
+
 		private static void ApplyFieldReplacements()
 		{
 			List<MethodBase> MethodsFromCache = new List<MethodBase>();
@@ -261,7 +276,7 @@ namespace RimThreaded
 				"GiddyUpCore.dll",
 				"SpeakUp.dll"
 			};
-			foreach (Assembly assembly in AllAssemblies)
+			foreach (Assembly assembly in AccessTools.AllAssemblies())
 			{
 				//Log.Message(assembly.ManifestModule.ScopeName);
 				if (AssembliesToPatch.Contains(assembly.ManifestModule.ScopeName))
@@ -326,7 +341,6 @@ namespace RimThreaded
 			Log.Message("RimThreaded Field Replacements Complete.");
 		}
 
-
 		public static List<CodeInstruction> EnterLock(LocalBuilder lockObject, LocalBuilder lockTaken, List<CodeInstruction> loadLockObjectInstructions, CodeInstruction currentInstruction)
 		{
 			List<CodeInstruction> codeInstructions = new List<CodeInstruction>();
@@ -347,6 +361,7 @@ namespace RimThreaded
 				new Type[] { typeof(object), typeof(bool).MakeByRefType() })));
 			return codeInstructions;
 		}
+
 		public static List<CodeInstruction> ExitLock(ILGenerator iLGenerator, LocalBuilder lockObject, LocalBuilder lockTaken, CodeInstruction currentInstruction)
 		{
 			List<CodeInstruction> codeInstructions = new List<CodeInstruction>();
@@ -409,6 +424,7 @@ namespace RimThreaded
 			instructionsList[currentInstructionIndex].labels.Add(endHandlerDestination);
 			return finalCodeInstructions;
 		}
+
 		public static List<CodeInstruction> GetLockCodeInstructions(
 			ILGenerator iLGenerator, List<CodeInstruction> instructionsList, int currentInstructionIndex,
 			int searchInstructionsCount, List<CodeInstruction> loadLockObjectInstructions, Type lockObjectType)
@@ -557,10 +573,13 @@ namespace RimThreaded
 			yield return instructionsList[i++];
 		}
 
-		public static readonly Dictionary<object, object> replaceFields = new Dictionary<object, object>();
+		//public static readonly Dictionary<object, object> replaceFields = new Dictionary<object, object>();
 
-		public static HashSet<object> notifiedObjects = new HashSet<object>();
+		//public static HashSet<object> notifiedObjects = new HashSet<object>();
 
+		// rebuild: transpile every single method, see if any instruction's operand is marked for replacement.
+		//			for field-to-field replacements, just replace the operand (if it's compatible)
+		//			for field-to-method replacements, change loads to gets and stores to sets.
 		public static IEnumerable<CodeInstruction> ReplaceFieldsTranspiler(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
 		{
 			notifiedObjects.Clear();
@@ -693,7 +712,6 @@ namespace RimThreaded
 			}
 		}
 
-
 		public static readonly HarmonyMethod replaceFieldsHarmonyTranspiler = new HarmonyMethod(Method(typeof(RimThreadedHarmony), nameof(ReplaceFieldsTranspiler)));
 		public static readonly HarmonyMethod methodLockTranspiler = new HarmonyMethod(Method(typeof(RimThreadedHarmony), nameof(WrapMethodInInstanceLock)));
 		public static readonly HarmonyMethod add3Transpiler = new HarmonyMethod(Method(typeof(RimThreadedHarmony), nameof(Add3Transpiler)));
@@ -720,6 +738,7 @@ namespace RimThreaded
 		{
 			Harmony.Patch(Method(original, methodName, origType), transpiler: add3Transpiler);
 		}
+
 		public static void Prefix(Type original, Type patched, string methodName, Type[] origType = null, bool destructive = true, int priority = 0, string finalizer = null, string PatchMethod = null, bool NullPatchType = false)
 		{
 			MethodInfo oMethod = Method(original, methodName, origType);
@@ -799,6 +818,7 @@ namespace RimThreaded
 				Log.Error("Exception Transpiling: " + oMethod.ToString() + " " + transpilerMethod.ToString() + " " + e.ToString());
 			}
 		}
+
 		public static void Transpile(Type original, Type patched, string methodName, string newMethodName, Type[] origType = null, string[] harmonyAfter = null, int priority = 0, string patchMethod = null)
 		{
 			MethodInfo oMethod = Method(original, methodName, origType);
@@ -818,12 +838,12 @@ namespace RimThreaded
 				Log.Error("Exception Transpiling: " + oMethod.ToString() + " " + transpilerMethod.ToString() + " " + e.ToString());
 			}
 		}
+
 		public static void TranspileMethodLock(Type original, string methodName, Type[] origType = null)
 		{
 			MethodInfo oMethod = Method(original, methodName, origType);
 			Harmony.Patch(oMethod, transpiler: methodLockTranspiler);
 		}
-
 
 		private static void PatchNonDestructiveFixes()
 		{
@@ -1074,6 +1094,7 @@ namespace RimThreaded
 			AlienRace_Patch.Patch();
 			DubsBadHygiene_Patch.Patch();
 		}
+
 		private static void FullPool_Patch_RunNonDestructivePatches()
 		{
 			Type original = typeof(FullPool<PawnStatusEffecters.LiveEffecter>);
@@ -1084,6 +1105,7 @@ namespace RimThreaded
 				Method(patched, "Return"));
 
 		}
+
 		private static void SimplePool_Patch_RunNonDestructivePatches()
         {
             replaceFields.Add(Method(typeof(SimplePool<List<float>>), "Get"),
@@ -1172,7 +1194,6 @@ namespace RimThreaded
 
         }
 
-
 		private static void Dijkstra_Patch_RunNonDestructivePatches()
 		{
 			//replaceFields.Add(Method(typeof(Dijkstra<Region>), "Run", new Type[] {
@@ -1251,7 +1272,5 @@ namespace RimThreaded
 				));
 
 		}
-
 	}
-
 }

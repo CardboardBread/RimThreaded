@@ -8,7 +8,7 @@ using Verse;
 
 namespace RimThreaded.Utilities
 {
-    // GenThreading but for async work like Task.
+    // GenThreading but for async work like System.Threading.Tasks.Task.
     public static class GenAsync
     {
         // Optional count parameter in case values shouldn't be repeatedly accessed.
@@ -43,7 +43,7 @@ namespace RimThreaded.Utilities
                     }
                     catch (Exception ex)
                     {
-                        Log.Error("Error in ParallelForEach(): " + ex);
+                        Log.Error($"Error in {nameof(SlicedForEach)}: {ex}");
                     }
                 }
             }

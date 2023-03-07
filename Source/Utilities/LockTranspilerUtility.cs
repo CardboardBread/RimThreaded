@@ -11,14 +11,12 @@ using UnityEngine.Assertions;
 
 namespace RimThreaded.Utilities
 {
+    // TODO: consider omitting a local variable for instance locks, instead using OpCodes.Ldarg_0
     /// <summary>
     /// A utility to help make Harmony patches that use locks.
     /// </summary>
     public static class LockTranspilerUtility
     {
-        public static MethodInfo InstanceLockWrapperMethod = AccessTools.Method(typeof(LockTranspilerUtility), nameof(WrapMethodInInstanceLock));
-        public static HarmonyMethod InstanceLockWrapperTranspiler = new(InstanceLockWrapperMethod);
-
         /// <summary>
         /// Determines if the provided instruction will transfer control to a scope outside of its enclosing method.
         /// </summary>
@@ -30,7 +28,7 @@ namespace RimThreaded.Utilities
         /// <returns>
         /// If the provided instruction will transfer control to a scope outside of its enclosing method.
         /// </returns>
-        public static bool IsExternalReference(CodeInstruction instruction) => instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt;
+        public static bool IsCall(this CodeInstruction instruction) => instruction.opcode == OpCodes.Call || instruction.opcode == OpCodes.Callvirt;
 
         // If the given method returns void or something.
         /// <summary>
@@ -44,7 +42,7 @@ namespace RimThreaded.Utilities
         /// <returns>
         /// If a method returns something or void.
         /// </returns>
-        public static bool IsMethodReturning(MethodBase method) => method.GetUnderlyingType() != typeof(void);
+        public static bool IsMethodReturning(this MethodBase method) => method.GetUnderlyingType() != typeof(void);
 
         /// <summary>
         /// How many IL instructions a method should have at its end for performing a return.
@@ -57,7 +55,7 @@ namespace RimThreaded.Utilities
         /// <returns>
         /// The number of IL instructions for returning from this method.
         /// </returns>
-        public static int GetClosingInstructionsCount(MethodBase method) => IsMethodReturning(method) ? 2 : 1;
+        public static int GetClosingInstructionsCount(this MethodBase method) => IsMethodReturning(method) ? 2 : 1;
 
         // Group a label with the last instructions in the method. Creates a label if none is already present.
         /// <summary>
@@ -82,27 +80,12 @@ namespace RimThreaded.Utilities
         public static (Label, IEnumerable<CodeInstruction>) GetClosingInstructions(MethodBase method, IEnumerable<CodeInstruction> originalInstructions, ILGenerator iLGenerator)
         {
             // Grab the 'return' instruction at the end or the 'load local' and 'return' instructions, if available.
-            IEnumerable<CodeInstruction> ending;
-            if (IsMethodReturning(method))
-            {
-                ending = originalInstructions.TakeLast(2);
-            }
-            else
-            {
-                ending = originalInstructions.TakeLast(1);
-            }
+            IEnumerable<CodeInstruction> ending = IsMethodReturning(method) ? originalInstructions.TakeLast(2) : originalInstructions.TakeLast(1);
 
             // Get any label on the first of the ending instructions, or make one if there's none available.
             Label label;
             var topLast = ending.First();
-            if (topLast.labels.Any())
-            {
-                label = topLast.labels.First();
-            }
-            else
-            {
-                label = iLGenerator.DefineLabel();
-            }
+            label = topLast.labels.Any() ? topLast.labels.First() : iLGenerator.DefineLabel();
 
             return (label, ending);
         }
@@ -179,7 +162,11 @@ namespace RimThreaded.Utilities
             return (enterInstructions, exitInstructions);
         }
 
-        public static IEnumerable<CodeInstruction> WrapMethodInInstanceLock(IEnumerable<CodeInstruction> originalInstructions, ILGenerator iLGenerator, MethodBase original)
+        public static MethodInfo InstanceLockWrapperMethod = MethodGroups.AsInfo(WrapMethodInInstanceLock);
+        public static HarmonyMethod InstanceLockWrapperTranspiler = MethodGroups.AsHarmony(WrapMethodInInstanceLock);
+
+        [HarmonyTranspiler]
+        public static IEnumerable<CodeInstruction> WrapMethodInInstanceLock(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator, MethodBase original)
         {
             // The first argument is always the instance.
             var loadInstructions = new List<CodeInstruction>()
@@ -190,15 +177,15 @@ namespace RimThreaded.Utilities
             // The first argument's type is taken instead of original.DeclaringType, to work with extension methods.
             var instanceType = original.GetParameters()[0].ParameterType;
 
-            return WrapMethodInLock(originalInstructions, iLGenerator, instanceType, loadInstructions, original);
+            return WrapMethodInLock(instructions, iLGenerator, instanceType, loadInstructions, original);
         }
 
         // If the method returns void, the last instruction should be only 'return'
         // If the method returns anything, the last two instructions should be loading the return value and then returning.
-        public static IEnumerable<CodeInstruction> WrapMethodInLock(IEnumerable<CodeInstruction> originalInstructions, ILGenerator iLGenerator, Type lockObjectType, IEnumerable<CodeInstruction> lockObjectLoader, MethodBase original)
+        public static IEnumerable<CodeInstruction> WrapMethodInLock(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator, Type lockObjectType, IEnumerable<CodeInstruction> lockObjectLoader, MethodBase original)
         {
             // Get the instructions we need to exit to for intermediate returns, and a label to reference them.
-            var (endingLabel, endingInstructions) = GetClosingInstructions(original, originalInstructions, iLGenerator);
+            var (endingLabel, endingInstructions) = GetClosingInstructions(original, instructions, iLGenerator);
 
             LocalBuilder lockVar = null;
             LocalBuilder lockFlag = null;
@@ -213,7 +200,7 @@ namespace RimThreaded.Utilities
             }
 
             // Get a copy of the method without the ending instructions.
-            var methodWithoutEnding = originalInstructions.Take(originalInstructions.Count() - GetClosingInstructionsCount(original));
+            var methodWithoutEnding = instructions.Take(instructions.Count() - GetClosingInstructionsCount(original));
 
             // Put the ending-less method after the lock entrance.
             foreach (var instruction in methodWithoutEnding)
@@ -256,16 +243,18 @@ namespace RimThreaded.Utilities
 
         }
 
-        // The types for calling Monitor.Enter()
-        internal static Type[] EnterMonitorTypes(Type type) => new Type[] { type, typeof(bool).MakeByRefType() };
+        internal static Type[] _EnterMonitorTypes => new Type[] { typeof(object), typeof(bool).MakeByRefType() };
+        internal static Type[] _ExitMonitorTypes => new Type[] { typeof(object) };
 
-        // The types for calling Monitor.Exit()
-        internal static Type[] ExitMonitorTypes(Type type) => new Type[] { type };
+        internal static MethodInfo _MonitorEnter = AccessTools.Method(typeof(Monitor), nameof(Monitor.Enter), _EnterMonitorTypes);
+        internal static MethodInfo _MonitorExit = AccessTools.Method(typeof(Monitor), nameof(Monitor.Exit), _ExitMonitorTypes);
 
-        // lockObjectLoader can be empty if the eval stack is guaranteed to have the lock object on top when these instructions execute
+        // TODO: consider moving labels from whatever instruction this should prepend
+        // TODO: verify the last object put on the eval stack from `lockObjectLoader` is an assignable type to `lockObjectVar`, raise an error (but don't exit) while patching.
+        // `lockObjectLoader` can be empty if the eval stack is guaranteed to have the lock object on top when these instructions execute.
         public static IEnumerable<CodeInstruction> GetEnterLockInstructions(ILGenerator iLGenerator, LocalBuilder lockObjectVar, Type lockObjectType, LocalBuilder lockTakenVar, IEnumerable<CodeInstruction> lockObjectLoader)
         {
-            Assert.IsTrue(lockTakenVar.LocalType == typeof(bool));
+            VerifyLockTakenVar(lockTakenVar);
 
             // Load the lock object on top the eval stack as provided.
             foreach (var instruction in lockObjectLoader)
@@ -276,11 +265,11 @@ namespace RimThreaded.Utilities
             // Store the lock object in our local variable.
             yield return new CodeInstruction(OpCodes.Stloc, lockObjectVar.LocalIndex);
 
-            // Set lockTakenVar to false.
+            // Set `lockTakenVar` to false.
             yield return new CodeInstruction(OpCodes.Ldc_I4_0);
             yield return new CodeInstruction(OpCodes.Stloc, lockTakenVar.LocalIndex);
 
-            // Invoke Monitor.Enter inside a new try block.
+            // Invoke `Monitor.Enter()` inside a new try block.
             yield return new CodeInstruction(OpCodes.Ldloc, lockObjectVar.LocalIndex)
             {
                 blocks = new List<ExceptionBlock>()
@@ -289,7 +278,7 @@ namespace RimThreaded.Utilities
                 }
             };
             yield return new CodeInstruction(OpCodes.Ldloca_S, lockTakenVar.LocalIndex); // ref bool
-            yield return CodeInstruction.Call(typeof(Monitor), nameof(Monitor.Enter), EnterMonitorTypes(lockObjectType));
+            yield return new CodeInstruction(OpCodes.Call, _MonitorEnter);
 #if DEBUG
             // Convention for IL of lock statements under debug.
             yield return new CodeInstruction(OpCodes.Nop);
@@ -297,11 +286,19 @@ namespace RimThreaded.Utilities
 #endif
         }
 
+        private static void VerifyLockTakenVar(LocalBuilder lockTakenVar)
+        {
+            if (lockTakenVar.LocalType != typeof(bool))
+            {
+                throw new ArgumentException($"Lock entry flag variable must be of type {typeof(bool)}.", nameof(lockTakenVar));
+            }
+        }
+
         // lockEndLabel should always be on the first instruction after these.
         // lockObjectLoader cannot be empty, as the caller cannot reliably insert instructions as required for loading the lock object.
         public static IEnumerable<CodeInstruction> GetExitLockInstructions(ILGenerator iLGenerator, LocalBuilder lockObjectVar, Type lockObjectType, LocalBuilder lockTakenVar, Label lockEndLabel, Label finallyBlockEndLabel, IEnumerable<CodeInstruction> lockObjectLoader)
         {
-            Assert.IsTrue(lockTakenVar.LocalType == typeof(bool));
+            VerifyLockTakenVar(lockTakenVar);
 
 #if DEBUG
             // Convention for IL of lock statements under debug.
@@ -331,7 +328,7 @@ namespace RimThreaded.Utilities
             }
 
             // Invoke Monitor.Exit, exit the finally block, and end the try-finally block's scope.
-            yield return CodeInstruction.Call(typeof(Monitor), nameof(Monitor.Exit), ExitMonitorTypes(lockObjectType));
+            yield return new CodeInstruction(OpCodes.Call, _MonitorExit);
             yield return new CodeInstruction(OpCodes.Endfinally)
             {
                 labels = new List<Label>()
@@ -344,5 +341,71 @@ namespace RimThreaded.Utilities
                 }
             };
         }
+
+        internal static MethodInfo _ICollectionAdd = AccessTools.Method(typeof(ICollection<object>), nameof(ICollection<object>.Add));
+
+        // replace every call to 'System.Collections.*.Add()' with a lock on the 0th argument, 'this' in instance methods.
+        [HarmonyTranspiler]
+        public static IEnumerable<CodeInstruction> WrapCollectionAddInInstanceLock(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator, MethodBase original)
+        {
+            // The first argument is always the instance.
+            var loadInstructions = new List<CodeInstruction>()
+            {
+                new CodeInstruction(OpCodes.Ldarg_0)
+            };
+
+            // The first argument's type is taken instead of original.DeclaringType, to work with extension methods.
+            var instanceType = original.GetParameters()[0].ParameterType;
+            var lockVar = iLGenerator.DeclareLocal(instanceType);
+            var lockFlag = iLGenerator.DeclareLocal(typeof(bool));
+
+            var enterInstructions = GetEnterLockInstructions(iLGenerator, lockVar, instanceType, lockFlag, loadInstructions);
+
+            var iList = instructions.ToList();
+            for (int i = 0; i < iList.Count; i++)
+            {
+                if (iList.NumLeft(i, 3) &&
+                    iList[i].opcode == OpCodes.Ldarg_0 &&
+                    iList[i + 1].opcode == OpCodes.Ldfld &&
+                    iList[i + 3].opcode == OpCodes.Callvirt &&
+                    iList[i + 3].operand is MethodInfo method &&
+                    method.Name == _ICollectionAdd.Name &&
+                    method.GetParameters() == _ICollectionAdd.GetParameters() &&
+                    method.ReturnType == _ICollectionAdd.ReturnType)
+                {
+                    Label endLock = iLGenerator.DefineLabel();
+                    Label endLockFinally = iLGenerator.DefineLabel();
+
+                    var exitInstructions = GetExitLockInstructions(iLGenerator, lockVar, instanceType, lockFlag, endLock, endLockFinally, loadInstructions);
+
+                    // Add lock entry instructions.
+                    foreach (var instruction in enterInstructions)
+                    {
+                        yield return instruction;
+                    }
+
+                    // Add 'System.Collections.*.Add()' instructions.
+                    yield return iList[i++];
+                    yield return iList[i++];
+                    yield return iList[i++];
+                    yield return iList[i++];
+
+                    // Add lock exit instructions.
+                    foreach (var instruction in exitInstructions)
+                    {
+                        yield return instruction;
+                    }
+
+                    // Jump original index forward by 'System.Collections.*.Add()' instruction count.
+                    i += 3;
+                }
+                else
+                {
+                    yield return iList[i];
+                }
+            }
+        }
+
+        private static bool NumLeft<T>(this IEnumerable<T> values, int index, int value) => values.Count() - index > value;
     }
 }

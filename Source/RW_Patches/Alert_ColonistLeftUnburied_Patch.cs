@@ -1,18 +1,15 @@
-﻿using RimWorld;
+﻿using HarmonyLib;
+using RimWorld;
 using System;
 using Verse;
 
 namespace RimThreaded.RW_Patches
 {
+    [HarmonyPatch(typeof(Alert_ColonistLeftUnburied))]
     class Alert_ColonistLeftUnburied_Patch
     {
-        internal static void RunDestructivePatches()
-        {
-            Type original = typeof(Alert_ColonistLeftUnburied);
-            Type patched = typeof(Alert_ColonistLeftUnburied_Patch);
-            RimThreadedHarmony.Prefix(original, patched, nameof(IsCorpseOfColonist));
-        }
-
+        [HarmonyPrefix]
+        [HarmonyPatch(nameof(Alert_ColonistLeftUnburied.IsCorpseOfColonist))]
         public static bool IsCorpseOfColonist(ref bool __result, Corpse corpse)
         {
             if (corpse == null)

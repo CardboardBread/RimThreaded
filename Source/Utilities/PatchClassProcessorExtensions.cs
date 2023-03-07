@@ -12,7 +12,7 @@ namespace RimThreaded.Utilities
     // Using direct casts instead of the 'as' operator, because invalid casts throwing exceptions are a good indicator
     // for out-of-date code.
     // TODO: bind to current assembly version of Harmony
-    public static class PatchClassExtensions
+    public static class PatchClassProcessorExtensions
     {
         private static FieldInfo _PatchClassProcessor_patchMethods = typeof(PatchClassProcessor).GetField("patchMethods");
         private static FieldInfo _PatchClassProcessor_auxilaryMethods = typeof(PatchClassProcessor).GetField("auxilaryMethods");

@@ -1,46 +1,48 @@
-﻿using System;
+﻿using HarmonyLib;
+using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
+using Verse;
 
 namespace RimThreaded.Utilities
 {
-    // An attribute to declare a lock should be injected when some named member/type is used.
-    // Declared on a patch class and provided with the patch's original class, the attribute will by default add locks on the instance to every instance method.
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method)]
-    public class RequireLockAttribute : Attribute
+    // An attribute to declare a lock should be injected when some member/type/parameter is used.
+    // Declared on a patch class and provided with the patch's original class, the attribute will by default add locks
+    // on the instance to every instance method.
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method | AttributeTargets.Field, AllowMultiple = true)]
+    public class RequireLockAttribute : SingleTargetPatchAttribute
     {
+        public static IEnumerable<RequireLockAttribute> GetLocalUsages() => AttributeUtility.GetLocalUsages<RequireLockAttribute>();
+
         internal const int invalidIndex = -1;
 
-        internal static void EnsureScope()
+        public RequireLockType LockType { get; set; } = RequireLockType.Instance;
+        public int ParameterIndex { get; set; } = invalidIndex;
+        public Type ParameterType { get; set; } = null;
+        public bool WrapMethod { get; set; } = true;
+
+        internal new MethodInfo _target;
+
+        public RequireLockAttribute()
         {
-            // TODO: find every class marked with this attribute, raise errors for any enclosingType that doesn't have
-            // a member with the given name, or where lockType does not match what is discovered.
         }
 
-        public readonly Type enclosingType;
-        public readonly LockType lockType;
-        public readonly int? paramIndex;
-        public readonly string memberName;
-
-        public RequireLockAttribute(Type enclosingType,
-                                    LockType lockType = LockType.Instance,
-                                    int paramIndex = invalidIndex,
-                                    string memberName = null)
+        public RequireLockAttribute(string memberName)
         {
-            this.enclosingType = enclosingType;
-            this.lockType = lockType;
-            this.paramIndex = paramIndex;
-            this.memberName = memberName;
+            MemberName = memberName;
         }
 
-        public enum LockType
+        public RequireLockAttribute(Type declaringType, string memberName) : this(memberName)
         {
-            None,
-            Instance,
-            Parameter,
-            Field
+            DeclaringType = declaringType;
+        }
+
+        internal override void Locate(HarmonyMethod nearby)
+        {
+            _target ??= AccessTools.DeclaredMethod(DeclaringType, MemberName);
         }
     }
 }

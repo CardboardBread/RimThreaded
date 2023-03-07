@@ -1,18 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using HarmonyLib;
 using RimWorld;
 using Verse;
 
 namespace RimThreaded.RW_Patches
 {
+    [HarmonyPatch(typeof(Alert_MinorBreakRisk))]
     class Alert_MinorBreakRisk_Patch
     {
-        public static void RunDestructivePatches()
-        {
-            Type original = typeof(Alert_MinorBreakRisk);
-            Type patched = typeof(Alert_MinorBreakRisk_Patch);
-            RimThreadedHarmony.Prefix(original, patched, nameof(GetReport));
-        }
+        [HarmonyPrefix]
+        [HarmonyPatch(nameof(Alert_MinorBreakRisk.GetReport))]
         public static bool GetReport(Alert_MinorBreakRisk __instance, ref AlertReport __result)
         {
             List<Pawn> pawnsAtRiskMinorResult = new List<Pawn>();

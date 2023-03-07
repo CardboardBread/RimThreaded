@@ -7,7 +7,6 @@ using System.Reflection;
 using System.Reflection.Emit;
 using System.Threading;
 using Verse;
-using static HarmonyLib.AccessTools;
 
 namespace RimThreaded.RW_Patches
 {
@@ -16,28 +15,13 @@ namespace RimThreaded.RW_Patches
     {
         static TickList_Patch()
         {
-
+            RimThreadedHarmony.Instance.CategoryPatch<NonDestructivePatchAttribute>(
+                original: AccessTools.Method(typeof(TickList), nameof(TickList.RegisterThing)),
+                transpiler: LockTranspilerUtility.InstanceLockWrapperTranspiler);
+            RimThreadedHarmony.Instance.CategoryPatch<NonDestructivePatchAttribute>(
+                original: AccessTools.Method(typeof(TickList), nameof(TickList.DeregisterThing)),
+                transpiler: LockTranspilerUtility.InstanceLockWrapperTranspiler);
         }
-
-        public static void RunNonDestructivePatches()
-        {
-            Type original = typeof(TickList);
-            Type patched = typeof(TickList_Patch);
-            RimThreadedHarmony.TranspileMethodLock(original, nameof(TickList.RegisterThing));
-            RimThreadedHarmony.TranspileMethodLock(original, nameof(TickList.DeregisterThing));
-            RimThreadedHarmony.Transpile(original, patched, nameof(Tick));
-            RimThreadedHarmony.Postfix(original, patched, nameof(TickList.Tick), nameof(TickPostfix));
-        }
-
-        [NonDestructivePatch]
-        [HarmonyTranspiler]
-        [HarmonyPatch(nameof(TickList.RegisterThing))]
-        public static IEnumerable<CodeInstruction> RegisterThing(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator) => RimThreadedHarmony.WrapMethodInInstanceLock(instructions, iLGenerator);
-
-        [NonDestructivePatch]
-        [HarmonyTranspiler]
-        [HarmonyPatch(nameof(TickList.DeregisterThing))]
-        public static IEnumerable<CodeInstruction> DeregisterThing(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator) => RimThreadedHarmony.WrapMethodInInstanceLock(instructions, iLGenerator);
 
         [NonDestructivePatch]
         [HarmonyPostfix]
@@ -80,7 +64,7 @@ namespace RimThreaded.RW_Patches
                 {
                     if (instructionsList[i + 2].operand is MethodInfo methodInfo)
                     {
-                        if (methodInfo == Method(typeof(Find), "get_TickManager"))
+                        if (methodInfo == AccessTools.Method(typeof(Find), "get_TickManager"))
                         {
                             List<Label> labels = instructionsList[i].labels;
                             while (i < instructionsList.Count)

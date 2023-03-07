@@ -16,8 +16,8 @@ namespace RimThreaded
     // Class for handling all the mod-relevant actions/information of RimThreaded.
     class RimThreadedMod : Mod
     {
-        internal static Assembly Assembly = Assembly.GetAssembly(typeof(RimThreaded));
-        internal static IEnumerable<Type> LocalTypes = AccessTools.GetTypesFromAssembly(Assembly);
+        internal static Assembly Assembly => Assembly.GetAssembly(typeof(RimThreaded));
+        internal static IEnumerable<Type> LocalTypes => AccessTools.GetTypesFromAssembly(Assembly);
 
         public static RimThreadedMod Instance => LoadedModManager.GetMod<RimThreadedMod>();
 
