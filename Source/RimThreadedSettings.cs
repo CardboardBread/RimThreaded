@@ -1,100 +1,126 @@
 using System;
 using Verse;
 using UnityEngine;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
+using RimThreaded.Utilities;
 
 namespace RimThreaded
 {
-    // Class for handling/modifying 
+    // Class for handling/modifying mutable options of RimThreaded's operation.
     public class RimThreadedSettings : ModSettings
     {
+        public const int MinThreadCount = 1;
+        public const int MaxThreadCount = 128;
+        public const int MinTimeoutMilliseconds = 5000;
+        public const int MaxTimeoutMilliseconds = 1000000;
+        public const int InfiniteTimeoutMilliseconds = System.Threading.Timeout.Infinite;
+
+        public const int DefaultTimeoutMilliseconds = 8000;
+        public const float DefaultTimeSpeedNormal = 1f;
+        public const float DefaultTimeSpeedFast = 3f;
+        public const float DefaultTimeSpeedSuperfast = 6f;
+        public const float DefaultTimeSpeedUltrafast = 15f;
+        public const bool DefaultDisableSomeAlerts = false;
+        public const bool DefaultDisableForcedSlowdowns = false;
+
+        public static int DefaultMaxThreads => SystemInfo.processorCount;
         public static RimThreadedSettings Instance => RimThreadedMod.Instance.Settings;
 
-        public int maxThreads = 8;
-        public string maxThreadsBuffer = "8";
+        private int maxThreads;
+        private string maxThreadsEditBuffer;
+        private int timeoutMilliseconds;
+        private string timeoutMillisecondsEditBuffer;
+        private float timeSpeedNormal;
+        private string timeSpeedNormalEditBuffer;
+        private float timeSpeedFast;
+        private string timeSpeedFastEditBuffer;
+        private float timeSpeedSuperfast;
+        private string timeSpeedSuperfastEditBuffer;
+        private float timeSpeedUltrafast;
+        private string timeSpeedUltrafastEditBuffer;
+        private bool disableSomeAlerts;
+        private bool disableForcedSlowdowns; // TODO: this already exists in vanilla debug mode under "View Settings"
+        private bool exportTranspiledMethods;
 
-        public int timeoutMS = 8000;
-        public string timeoutMSBuffer = "8000";
+        private Vector2 mainScrollPos = Vector2.zero;
+        private Vector2 conflictsScrollPos = Vector2.zero;
 
-        public float timeSpeedNormal = 1f;
-        public string timeSpeedNormalBuffer = "1";
+        public int MaxThreads
+        {
+            get => Math.Min(Math.Max(maxThreads, MinThreadCount), MaxThreadCount);
+            private set => maxThreads = value;
+        }
+        public int TimeoutMilliseconds
+        {
+            get => Math.Min(Math.Max(timeoutMilliseconds, MinTimeoutMilliseconds), MaxTimeoutMilliseconds);
+            private set => timeoutMilliseconds = value;
+        }
+        public TimeSpan HalfTimeoutMilliseconds => new(0, 0, 0, 0, TimeoutMilliseconds / 2);
+        public float TimeSpeedNormal { get => timeSpeedNormal; private set => timeSpeedNormal = value; }
+        public float TimeSpeedFast { get => timeSpeedFast; private set => timeSpeedFast = value; }
+        public float TimeSpeedSuperfast { get => timeSpeedSuperfast; private set => timeSpeedSuperfast = value; }
+        public float TimeSpeedUltrafast { get => timeSpeedUltrafast; private set => timeSpeedUltrafast = value; }
+        public bool DisableSomeAlerts { get => disableSomeAlerts; private set => disableSomeAlerts = value; }
+        public bool DisableForcedSlowdowns { get => disableForcedSlowdowns; private set => disableForcedSlowdowns = value; }
+        public bool ExportTranspiledMethods { get => exportTranspiledMethods; private set => exportTranspiledMethods = value; }
 
-        public float timeSpeedFast = 3f;
-        public string timeSpeedFastBuffer = "3";
-
-        public float timeSpeedSuperfast = 12f;
-        public string timeSpeedSuperfastBuffer = "12";
-
-        public float timeSpeedUltrafast = 150f;
-        public string timeSpeedUltrafastBuffer = "150";
-
-        public bool disablesomealerts = false;
-        public bool disableforcedslowdowns = false; // TODO: this already exists in vanilla debug mode under "View Settings"
-        
-        public string modsText = "";
-        private string defaultMaxThreads = SystemInfo.processorCount.ToString() ?? "8";
-
-        public Vector2 mainScrollPos = Vector2.zero;
-        public Vector2 scrollPos = Vector2.zero;
-
-        public RimThreadedSettings()
+        public RimThreadedSettings() : base()
         {
         }
 
         public override void ExposeData()
         {
-
-            try
-            {
-                defaultMaxThreads = SystemInfo.processorCount.ToString();
-            }
-            catch (Exception)
-            {
-                defaultMaxThreads = "8";
-            }
             base.ExposeData();
-            Scribe_Values.Look(ref maxThreadsBuffer, nameof(maxThreadsBuffer), defaultMaxThreads);
-            Scribe_Values.Look(ref timeoutMSBuffer, nameof(timeoutMSBuffer), "8000");
-            Scribe_Values.Look(ref timeSpeedNormalBuffer, nameof(timeSpeedNormalBuffer), "1");
-            Scribe_Values.Look(ref timeSpeedFastBuffer, nameof(timeSpeedFastBuffer), "3");
-            Scribe_Values.Look(ref timeSpeedSuperfastBuffer, nameof(timeSpeedSuperfastBuffer), "12");
-            Scribe_Values.Look(ref timeSpeedUltrafastBuffer, nameof(timeSpeedUltrafastBuffer), "150");
-            Scribe_Values.Look(ref disablesomealerts, nameof(disablesomealerts), false);
-            Scribe_Values.Look(ref disableforcedslowdowns, nameof(disableforcedslowdowns), false);
-
+            Scribe_Values.Look(ref maxThreads, nameof(MaxThreads), DefaultMaxThreads);
+            Scribe_Values.Look(ref timeoutMilliseconds, nameof(TimeoutMilliseconds), DefaultTimeoutMilliseconds);
+            Scribe_Values.Look(ref timeSpeedNormal, nameof(TimeSpeedNormal), DefaultTimeSpeedNormal);
+            Scribe_Values.Look(ref timeSpeedFast, nameof(TimeSpeedFast), DefaultTimeSpeedFast);
+            Scribe_Values.Look(ref timeSpeedSuperfast, nameof(TimeSpeedSuperfast), DefaultTimeSpeedSuperfast);
+            Scribe_Values.Look(ref timeSpeedUltrafast, nameof(TimeSpeedUltrafast), DefaultTimeSpeedUltrafast);
+            Scribe_Values.Look(ref disableSomeAlerts, nameof(DisableSomeAlerts), DefaultDisableSomeAlerts);
+            Scribe_Values.Look(ref disableForcedSlowdowns, nameof(DisableForcedSlowdowns), DefaultDisableForcedSlowdowns);
         }
 
         public void DoWindowContents(Rect inRect)
         {
             var viewRect = new Rect(x: 0f, y: 0f, width: inRect.width - 16f, height: 1200f);
             Widgets.BeginScrollView(inRect, ref mainScrollPos, viewRect);
-            var listing_Standard = new Listing_Standard();
-            listing_Standard.Begin(viewRect);
+            var listingStd = new Listing_Standard();
+            listingStd.Begin(viewRect);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Total worker threads (recommendation 1-2 per CPU core):");
-            Widgets.IntEntry(listing_Standard.GetRect(37f), ref maxThreads, ref maxThreadsBuffer);
+            Widgets.Label(listingStd.GetRect(25f), "Total worker threads (recommendation 1-2 per CPU core):");
+            Widgets.IntEntry(listingStd.GetRect(37f), ref maxThreads, ref maxThreadsEditBuffer);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Timeout (in miliseconds) waiting for threads (default: 8000):");
-            Widgets.IntEntry(listing_Standard.GetRect(37f), ref timeoutMS, ref timeoutMSBuffer, 100);
+            Widgets.Label(listingStd.GetRect(25f), "Timeout (in miliseconds) waiting for threads (default: 8000):");
+            Widgets.IntEntry(listingStd.GetRect(37f), ref timeoutMilliseconds, ref timeoutMillisecondsEditBuffer, 100);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Timespeed Normal (multiply by 60 for Max TPS):");
-            Widgets.TextFieldNumeric(listing_Standard.GetRect(30f), ref timeSpeedNormal, ref timeSpeedNormalBuffer);
+            Widgets.Label(listingStd.GetRect(25f), "Timespeed Normal (multiply by 60 for Max TPS):");
+            Widgets.TextFieldNumeric(listingStd.GetRect(30f), ref timeSpeedNormal, ref timeSpeedNormalEditBuffer);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Timespeed Fast (multiply by 60 for Max TPS):");
-            Widgets.TextFieldNumeric(listing_Standard.GetRect(30f), ref timeSpeedFast, ref timeSpeedFastBuffer);
+            Widgets.Label(listingStd.GetRect(25f), "Timespeed Fast (multiply by 60 for Max TPS):");
+            Widgets.TextFieldNumeric(listingStd.GetRect(30f), ref timeSpeedFast, ref timeSpeedFastEditBuffer);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Timespeed Superfast (multiply by 60 for Max TPS):");
-            Widgets.TextFieldNumeric(listing_Standard.GetRect(30f), ref timeSpeedSuperfast, ref timeSpeedSuperfastBuffer);
+            Widgets.Label(listingStd.GetRect(25f), "Timespeed Superfast (multiply by 60 for Max TPS):");
+            Widgets.TextFieldNumeric(listingStd.GetRect(30f), ref timeSpeedSuperfast, ref timeSpeedSuperfastEditBuffer);
 
-            Widgets.Label(listing_Standard.GetRect(25f), "Timespeed Ultrafast (multiply by 60 for Max TPS):");
-            Widgets.TextFieldNumeric(listing_Standard.GetRect(30f), ref timeSpeedUltrafast, ref timeSpeedUltrafastBuffer);
+            Widgets.Label(listingStd.GetRect(25f), "Timespeed Ultrafast (multiply by 60 for Max TPS):");
+            Widgets.TextFieldNumeric(listingStd.GetRect(30f), ref timeSpeedUltrafast, ref timeSpeedUltrafastEditBuffer);
 
-            Widgets.CheckboxLabeled(listing_Standard.GetRect(27f), "Disable alert updates at 4x speed:", ref disablesomealerts);
+            Widgets.CheckboxLabeled(listingStd.GetRect(27f), "Disable alert updates at 4x speed:", ref disableSomeAlerts);
 
-            Widgets.CheckboxLabeled(listing_Standard.GetRect(27f), "Disable forced slowdowns on events like combat:", ref disableforcedslowdowns);
+            Widgets.CheckboxLabeled(listingStd.GetRect(27f), "Disable forced slowdowns on events like combat:", ref DebugViewSettings.neverForceNormalSpeed);
+            //disableForcedSlowdowns;
 
-            Widgets.TextAreaScrollable(listing_Standard.GetRect(300f), modsText, ref scrollPos);
+            if (Prefs.LogVerbose)
+            {
+                Widgets.CheckboxLabeled(listingStd.GetRect(27f), "Export transpiled methods on startup:", ref exportTranspiledMethods);
+                Widgets.Label(listingStd.GetRect(25f), $"Transpiled methods will be exported to: {RimThreadedMod.PatchExportsFolderPath}");
+            }
 
-            listing_Standard.End();
+            Widgets.TextAreaScrollable(listingStd.GetRect(300f), RimThreadedHarmony.PatchConflictsText ?? "", ref conflictsScrollPos);
+
+            listingStd.End();
             Widgets.EndScrollView();
         }
     }

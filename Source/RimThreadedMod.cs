@@ -1,158 +1,55 @@
-using HarmonyLib;
-using System;
-using System.Collections.Generic;
-using System.Reflection;
-using Verse;
-using UnityEngine;
-using System.Reflection.Emit;
-using System.Linq;
+global using HarmonyLib;
+global using RimWorld;
+global using System;
+global using System.Collections.Generic;
+global using System.Reflection;
+global using UnityEngine;
+global using Verse;
+global using SysDebug = System.Diagnostics.Debug;
+global using UnityDebug = UnityEngine.Debug;
+using RimThreaded.Utilities;
 using System.IO;
-using System.Security.Permissions;
+using System.Linq;
+using System.Reflection.Emit;
 using System.Security;
-using System.Runtime;
+using System.Security.Permissions;
+using System.Threading;
 
-namespace RimThreaded 
-{ 
+namespace RimThreaded
+{
     // Class for handling all the mod-relevant actions/information of RimThreaded.
-    class RimThreadedMod : Mod
+    public class RimThreadedMod : Mod
     {
-        internal static Assembly Assembly => Assembly.GetAssembly(typeof(RimThreaded));
-        internal static IEnumerable<Type> LocalTypes => AccessTools.GetTypesFromAssembly(Assembly);
+        private const string PatchExportsFolderName = "PatchExports";
+        public static readonly string ExtrasFolderPathName = typeof(RimThreadedMod).Namespace;
+
+        public static string ExtrasFolderPath => GenFilePaths.FolderUnderSaveData(ExtrasFolderPathName);
+        //public static string VersionedExtrasFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
+        public static string PatchExportsFolderPath => Path.Combine(ExtrasFolderPath, PatchExportsFolderName);
+        //public static string VersionedPatchExportsFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
+
+        public static readonly Version ModVersion = typeof(RimThreadedMod).Assembly.GetName().Version; // TODO: About.xml might have a property for defining mod versions
 
         public static RimThreadedMod Instance => LoadedModManager.GetMod<RimThreadedMod>();
 
-        public RimThreadedSettings Settings => GetSettings<RimThreadedSettings>();
-        public string GameVersion => Content.ModMetaData.SupportedVersionsReadOnly.First().ToString(); // TODO: verify this is correct.
-        public string AssembliesFolder => Path.Combine(Content.RootDir, GameVersion, "Assemblies");
-        public string ReplacementsJsonPath => Path.Combine(AssembliesFolder, $"replacements_{GameVersion}.json");
-        public string ReplacementsJsonText => File.ReadAllText(ReplacementsJsonPath);
-
-        public List<object> ModConflicts;
-        public RimThreadedHarmony Harmony;
-
-        public RimThreadedMod(ModContentPack content) : base(content)
+        static RimThreadedMod()
         {
-            Harmony = new(content.PackageId);
         }
 
-        public override void DoSettingsWindowContents(Rect inRect)
+        // TODO: verify we can sucessfully postfix patch a method we're currently in; the stack trace leading to this
+        //       constructor contains `LoadedModManager.LoadAllActiveMods`.
+        //       As a backup, we can prefix/postfix `LoadedModManager.ClearCachedPatches` since it's the last method in
+        //       `LoadedModManager.LoadAllActiveMods` to be called, and is only called by `LoadedModManager.LoadAllActiveMods`
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
+        internal static void DiscoverModConflicts()
         {
-            if (Settings.modsText.Length == 0)
-            {
-                Settings.modsText = "Potential RimThreaded mod conflicts :\n";
-                Settings.modsText += GetPotentialModConflicts();
-            }
-            Settings.DoWindowContents(inRect);
-            if (Settings.maxThreads != RimThreaded.maxThreads)
-            {
-                RimThreaded.maxThreads = Math.Max(Settings.maxThreads, 1);
-                RimThreaded.RestartAllWorkerThreads();
-            }
-            RimThreaded.timeoutMS = Math.Max(Settings.timeoutMS, 1000);
-            RimThreaded.halfTimeoutMS = new TimeSpan(0,0,0,0,RimThreaded.timeoutMS / 2);
-            RimThreaded.timeSpeedNormal = Settings.timeSpeedNormal;
-            RimThreaded.timeSpeedFast = Settings.timeSpeedFast;
-            RimThreaded.timeSpeedSuperfast = Settings.timeSpeedSuperfast;
-            RimThreaded.timeSpeedUltrafast = Settings.timeSpeedUltrafast;
-
+            Log.Message("[RimThreaded] Discovering mod conflicts...");
+            // TODO: search for and report non-Harmony conflicts with other mods
         }
 
-        public static string GetPotentialModConflicts()
-        {
-            string modsText = "";
-            IEnumerable<MethodBase> originalMethods = Harmony.GetAllPatchedMethods();
-            foreach (MethodBase originalMethod in originalMethods)
-            {
-                Patches patches = Harmony.GetPatchInfo(originalMethod);
-                if (patches is null) { }
-                else
-                {
-                    Patch[] sortedPrefixes = patches.Prefixes.ToArray();
-
-                    PatchProcessor.GetSortedPatchMethods(originalMethod, sortedPrefixes);
-                    bool isRimThreadedPrefixed = false;
-                    string modsText1 = "";
-                    foreach (Patch patch in sortedPrefixes)
-                    {
-#if REL13
-                        if ( patch.owner.Equals("majorhoff.rimthreaded"))/* Sernior: this if can be removed for debug */
-                        {
-                            continue;
-                        }
-#endif
-                        if (patch.owner.Equals(Instance.Content.PackageId) && !RimThreadedHarmony.nonDestructivePrefixes.Contains(patch.PatchMethod) && (patches.Prefixes.Count > 1 || patches.Postfixes.Count > 0 || patches.Transpilers.Count > 0))
-                        {
-                            isRimThreadedPrefixed = true;
-                            modsText1 = "\n  ---Patch method: " + patch.PatchMethod.DeclaringType.FullName + " " + patch.PatchMethod + "---\n";
-                            modsText1 += "  RimThreaded priority: " + patch.priority + "\n";
-                            break;
-                        }
-                    }
-                    if (isRimThreadedPrefixed)
-                    {
-                        bool rimThreadedPatchFound = false;
-                        bool headerPrinted = false;
-                        foreach (Patch patch in sortedPrefixes)
-                        {
-                            if (patch.owner.Equals(Instance.Content.PackageId))
-                                rimThreadedPatchFound = true;
-                            if (!patch.owner.Equals(Instance.Content.PackageId) && rimThreadedPatchFound)
-                            {
-                                //Settings.modsText += "method: " + patch.PatchMethod + " - ";
-                                if(!headerPrinted)
-                                    modsText += modsText1;
-                                headerPrinted = true;
-                                modsText += "  owner: " + patch.owner + " - ";
-                                modsText += "  priority: " + patch.priority + "\n";
-                            }
-                        }
-                        //foreach (Patch patch in patches.Postfixes)
-                        //{
-                        //    //Settings.modsText += "method: " + patch.PatchMethod + " - ";
-                        //    modsText += "  owner: " + patch.owner + " - ";
-                        //    modsText += "  priority: " + patch.priority + "\n";
-                        //}
-                        foreach (Patch patch in patches.Transpilers)
-                        {
-                            if (!headerPrinted)
-                                modsText += modsText1;
-                            headerPrinted = true;
-                            //Settings.modsText += "method: " + patch.PatchMethod + " - ";
-                            modsText += "  owner: " + patch.owner + " - ";
-                            modsText += "  priority: " + patch.priority + "\n";
-                        }
-                    }
-                }
-            }
-
-            foreach (var original in Harmony.GetAllPatchedMethods())
-            {
-                var patches = Harmony.GetPatchInfo(original);
-                if (patches != null)
-                {
-                    var prefixes = patches.Prefixes.ToArray();
-                    var sortedPatches = PatchProcessor.GetSortedPatchMethods(original, prefixes);
-
-                    var valid = patches.Prefixes.Count > 1 || patches.Postfixes.Count > 0 || patches.Transpilers.Count > 0;
-                    var hasOwnedPrefix = false;
-
-                    foreach (var patch in prefixes)
-                    {
-                        if (patch.owner == Instance.Content.PackageId &&
-                            !RimThreadedHarmony.nonDestructivePrefixes.Contains(patch.PatchMethod) &&
-                            valid)
-                        {
-                            hasOwnedPrefix = true;
-                            yield return (patch, patch.PatchMethod, patch.priority);
-                            break;
-                        }
-                    }
-                }
-            }
-
-            return modsText;
-        }
-
+        // TODO: ExportTranspiledMethods alongside config file(s). 
+        // TODO: move this to RimThreadedHarmony since it has to do with patching
         public static void ExportTranspiledMethods()
         {
             AssemblyName aName = new AssemblyName("RimWorldTranspiles");
@@ -478,7 +375,7 @@ namespace RimThreaded
             }
             foreach (KeyValuePair<string, TypeBuilder> tb in typeBuilders)
             {
-                
+
                 tb.Value.CreateType();
             }
             ab.Save(aName.Name + ".dll");
@@ -519,37 +416,123 @@ namespace RimThreaded
                 }
             }
         }
-#if false
-        public static MethodInfo UpdateWrapper(MethodBase original, ILGenerator il)
+
+        public readonly RimThreadedHarmony HarmonyInst;
+        public readonly RimThreadedSettings Settings;
+        public readonly string GameVersion;
+        public readonly string AssembliesFolder;
+        internal readonly Thread MainThread;
+        internal readonly SynchronizationContext MainSyncContext;
+        internal readonly string _ReplacementsJsonPath;
+        internal readonly string _ReplacementsJsonText;
+        private readonly Dictionary<Type, List<object>> localAttributesByType = new();
+
+        public RimThreadedMod(ModContentPack content) : base(content)
         {
-            PatchProcessor patchProcessor = RimThreadedHarmony.harmony.CreateProcessor(original);
-            PatchInfo patchInfo = HarmonySharedState.GetPatchInfo(patchProcessor.original) ?? new PatchInfo();
-            bool debug = patchInfo.Debugging || Harmony.DEBUG;
-            List<MethodInfo> sortedPatchMethods = PatchFunctions.GetSortedPatchMethods(original, patchInfo.prefixes, debug);
-            List<MethodInfo> sortedPatchMethods2 = PatchFunctions.GetSortedPatchMethods(original, patchInfo.postfixes, debug);
-            List<MethodInfo> sortedPatchMethods3 = PatchFunctions.GetSortedPatchMethods(original, patchInfo.transpilers, debug);
-            List<MethodInfo> sortedPatchMethods4 = PatchFunctions.GetSortedPatchMethods(original, patchInfo.finalizers, debug);
-            Dictionary<int, CodeInstruction> finalInstructions;
-            MethodPatcher methodPatcher = new MethodPatcher(original, null, sortedPatchMethods, sortedPatchMethods2, sortedPatchMethods3, sortedPatchMethods4, debug);
-            methodPatcher.il = il;
-            MethodInfo methodInfo = methodPatcher.CreateReplacement(out finalInstructions);
-            if (methodInfo == null)
-            {
-                throw new MissingMethodException("Cannot create replacement for " + original.FullDescription());
-            }
-            try
-            {
-                Memory.DetourMethodAndPersist(original, methodInfo);
-            } finally
-            {
+            Log.Message($"[RimThreaded] Initializing version {ModVersion}...");
+            MainThread = Thread.CurrentThread;
+            MainSyncContext = SynchronizationContext.Current;
 
+            bool originalHarmonyDebug = Harmony.DEBUG;
+            if (Prefs.LogVerbose)
+            {
+                Log.Message($"[RimThreaded] {nameof(Prefs.LogVerbose)} preference enabled, enabling Harmony full debugging mode for RimThreaded patching...");
+                Harmony.DEBUG = true;
             }
-            return methodInfo;
+
+            HarmonyInst = new(content.PackageId);
+            Settings = GetSettings<RimThreadedSettings>();
+            GameVersion = content.ModMetaData.SupportedVersionsReadOnly.First().ToString(); // TODO: verify this is correct.
+            AssembliesFolder = Path.Combine(content.RootDir, GameVersion, "Assemblies");
+            _ReplacementsJsonPath = Path.Combine(AssembliesFolder, $"replacements_{GameVersion}.json");
+            _ReplacementsJsonText = File.ReadAllText(_ReplacementsJsonPath);
+
+            // Load replacements and patches
+            DiscoverAttributes();
+
+            Log.Message($"[RimThreaded] Patching methods...");
+            // Apply field replacement patch(es)
+            // Apply destructive patches
+            // Apply default patches
+            // Apply non-destructive patches
+            // Apply mod compatibility patches
+            Log.Message("[RimThreaded] Patching is complete.");
+
+            // Conditionally export transpiled methods
+            if (Prefs.LogVerbose && Settings.ExportTranspiledMethods)
+            {
+                ExportTranspiledMethods();
+            }
+
+            if (Prefs.LogVerbose)
+            {
+                Log.Message($"[RimThreaded] {nameof(Prefs.LogVerbose)} preference enabled, returning Harmony full debugging mode to original state...");
+                Harmony.DEBUG = originalHarmonyDebug;
+            }
+
+            Log.Message($"[RimThreaded] Finished initializing version {ModVersion}.");
         }
-#endif
 
-        public override string SettingsCategory() => GetType().Namespace;
+        public IEnumerable<T> GetLocalAttributesByType<T>() where T : Attribute => localAttributesByType.GetValueSafe(typeof(T))?.Cast<T>();
+
+        // Rather than have each attribute search all local types for instances of itself, we'll do one pass over every local
+        // type and try to initialize all the known attributes.
+        internal void DiscoverAttributes()
+        {
+            foreach (var localType in RimThreaded.LocalTypes)
+            {
+                DiscoverAttribute(localType);
+
+                foreach (var field in localType.GetFields(AccessTools.allDeclared))
+                {
+                    DiscoverAttribute(field);
+                }
+
+                foreach (var method in localType.GetMethods(AccessTools.allDeclared))
+                {
+                    DiscoverAttribute(method);
+                }
+
+                foreach (var constructor in localType.GetConstructors(AccessTools.allDeclared))
+                {
+                    DiscoverAttribute(constructor);
+                }
+            }
+        }
+
+        // TODO: verify attribute usage is a static member
+        internal void DiscoverAttribute(MemberInfo member, object[] attributes = null)
+        {
+            attributes ??= member.GetCustomAttributes(inherit: true);
+
+            foreach (var attribute in attributes)
+            {
+                if (attribute is ILocationAware locationAware)
+                {
+                    try
+                    {
+                        locationAware.Locate(member);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error($"[RimThreaded] Error in locating `{locationAware}`: {ex}");
+                    }
+                }
+
+                var attributeType = attribute.GetType();
+                if (attributeType.Assembly == RimThreaded.LocalAssembly)
+                {
+                    localAttributesByType.NewValueIfAbsent(attributeType).Add(attribute);
+                }
+            }
+
+            HarmonyInst.DiscoverAttribute(member, attributes);
+        }
+
+        public override void WriteSettings() => base.WriteSettings();
+
+        public override void DoSettingsWindowContents(Rect inRect) => Settings.DoWindowContents(inRect);
+
+        public override string SettingsCategory() => GetType().Namespace.Translate();
     }
-
 }
-

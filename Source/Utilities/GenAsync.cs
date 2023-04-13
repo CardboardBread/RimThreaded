@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
 using Verse;
@@ -12,7 +13,7 @@ namespace RimThreaded.Utilities
     public static class GenAsync
     {
         // Optional count parameter in case values shouldn't be repeatedly accessed.
-        public static IEnumerable<IEnumerable<T>> SliceWork<T>(IEnumerable<T> values, int slices, int? count = null)
+        private static IEnumerable<IEnumerable<T>> SliceWork<T>(IEnumerable<T> values, int slices, int? count = null)
         {
             count ??= values.Count();
             var perSlice = count / slices;
@@ -26,7 +27,7 @@ namespace RimThreaded.Utilities
         }
 
         // Split a collection of items into slices that a set of tasks will be created to execute a callback upon in parallel.
-        public static void SlicedForEach<T>(IEnumerable<T> source, Action<T> callback, int? maxSlices = null, int? count = null)
+        private static void SlicedForEach<T>(IEnumerable<T> source, Action<T> callback, int? maxSlices = null, int? count = null)
         {
             maxSlices ??= Environment.ProcessorCount;
             var slices = SliceWork(source, maxSlices.Value, count);
@@ -55,7 +56,7 @@ namespace RimThreaded.Utilities
         }
 
         // Execute a callback against every element in the given collection, using a queue of worker tasks.
-        public static void QueuedForEach<T>(IEnumerable<T> source, Action<T> callback, int? maxWorkers = null)
+        private static void QueuedForEach<T>(IEnumerable<T> source, Action<T> callback, int? maxWorkers = null)
         {
             // TODO: maybe replace queue with mega-list of tasks.
             maxWorkers ??= Environment.ProcessorCount;
@@ -78,14 +79,14 @@ namespace RimThreaded.Utilities
             }
         }
 
-        public static void InlineForEach<T>(IEnumerable<T> source, Action<T> callback)
+        private static void InlineForEach<T>(IEnumerable<T> source, Action<T> callback)
         {
             Task.WaitAll(source.Select(i => Task.Run(() => callback(i))).ToArray());
         }
 
-        public static async Task InlineForEachAsync<T>(IEnumerable<T> source, Action<T> callback)
+        private static Task InlineForEachAsync<T>(IEnumerable<T> source, Action<T> callback)
         {
-            await Task.WhenAll(source.Select(i => Task.Run(() => callback(i))));
+            return Task.WhenAll(source.Select(i => Task.Run(() => callback(i))));
         }
     }
 }

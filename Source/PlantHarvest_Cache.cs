@@ -1,4 +1,4 @@
-﻿using RimThreaded.RW_Patches;
+﻿using RimThreaded.Patches.VerseAIPatches;
 using RimWorld;
 using Verse;
 

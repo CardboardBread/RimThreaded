@@ -4,11 +4,11 @@ using System.Collections.Generic;
 using UnityEngine;
 using Verse;
 using Verse.AI;
-using static RimThreaded.RW_Patches.Area_Patch;
+using static RimThreaded.Patches.VersePatches.Area_Patch;
 using static Verse.AI.ReservationManager;
 using static HarmonyLib.AccessTools;
 using System.Reflection;
-using RimThreaded.RW_Patches;
+using RimThreaded.Patches.VerseAIPatches;
 
 namespace RimThreaded
 {

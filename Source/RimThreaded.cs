@@ -1,562 +1,84 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using Verse;
-using RimWorld;
-using Verse.Sound;
-using RimWorld.Planet;
-using System.Collections.Concurrent;
-using System.Threading;
-using UnityEngine;
-using RimThreaded.RW_Patches;
-using System.Threading.Tasks;
 using RimThreaded.Utilities;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace RimThreaded
 {
-    // Main singleton class for handling the normal operation of RimThreaded.
+    // Singleton class for handling the normal operation and general utilities of RimThreaded.
     [StaticConstructorOnStartup]
     public static class RimThreaded
     {
-        public static RimThreadedTaskScheduler TaskScheduler = new();
+        public static readonly RimThreadedTaskScheduler TaskScheduler;
+        public static readonly TaskFactory TaskFactory;
 
-        public static List<Task> Tasks = new();
-        public static TaskFactory TaskFactory = new();
-        public static CancellationTokenSource CancellationTokenSource = new();
+        public static readonly Assembly LocalAssembly = typeof(RimThreaded).Assembly;
+        public static readonly Module LocalModule = typeof(RimThreaded).Module;
+        public static readonly Type[] LocalTypes = AccessTools.GetTypesFromAssembly(LocalAssembly);
 
-        public static Dictionary<Bill_Production, List<Pawn>> billFreeColonistsSpawned = new Dictionary<Bill_Production, List<Pawn>>();
+        public static int MaxDegreeOfParallelism => RimThreadedSettings.Instance?.MaxThreads ?? SystemInfo.processorCount;
+        public static int MaximumConcurrencyLevel => MaxDegreeOfParallelism;
 
-        public static int maxThreads = Math.Min(Math.Max(int.Parse(RimThreadedSettings.Instance.maxThreadsBuffer), 1), 128);
-        public static int timeoutMS = Math.Min(Math.Max(int.Parse(RimThreadedSettings.Instance.timeoutMSBuffer), 5000), 1000000);
-        public static float timeSpeedNormal = float.Parse(RimThreadedSettings.Instance.timeSpeedNormalBuffer);
-        public static float timeSpeedFast = float.Parse(RimThreadedSettings.Instance.timeSpeedFastBuffer);
-        public static float timeSpeedSuperfast = float.Parse(RimThreadedSettings.Instance.timeSpeedSuperfastBuffer);
-        public static float timeSpeedUltrafast = float.Parse(RimThreadedSettings.Instance.timeSpeedUltrafastBuffer);
-        public static DateTime lastTicksCheck = DateTime.Now;
-        public static int lastTicksAbs = -1;
-        public static int ticksPerSecond = 0;
-
-        public static EventWaitHandle MainWaitHandle = new AutoResetEvent(false);
-        public static EventWaitHandle MonitorWaitHandle = new AutoResetEvent(false);
-        private static readonly Thread monitorThread;
-        private static bool allWorkerThreadsFinished;
-
-        public static ConcurrentQueue<Tuple<SoundDef, SoundInfo>> PlayOneShot = new ConcurrentQueue<Tuple<SoundDef, SoundInfo>>();
-        public static ConcurrentQueue<Tuple<SoundDef, Map>> PlayOneShotCamera = new ConcurrentQueue<Tuple<SoundDef, Map>>();
-
-        public static PlantHarvest_Cache plantHarvest_Cache = new PlantHarvest_Cache();
-        public static PlantSowing_Cache plantSowing_Cache = new PlantSowing_Cache();
-
-        //ThingListTicks
-        public static List<Thing> thingListNormal;
-        public static int thingListNormalTicks = 0;
-        public static List<Thing> thingListRare;
-        public static int thingListRareTicks = 0;
-        public static List<Thing> thingListLong;
-        public static int thingListLongTicks = 0;
-
-        //WorldObjectsHolder
-        public static int worldObjectsTicks = 0;
-        public static List<WorldObject> worldObjects = null;
-
-        //WorldPawns
-        public static WorldPawns worldPawns = null;
-
-        //FactionManager
-        public static List<Faction> allFactions = null;
-
-        public static int currentPrepsDone = -1;
-        public static int workingOnDateNotifierTick = -1;
-        public static int workingOnWorldTick = -1;
-        public static int workingOnMapPostTick = -1;
-        public static int workingOnHistoryTick = -1;
-        public static int workingOnMiscellaneous = -1;
-
-        public static TickManager callingTickManager;
-        public static int listsFullyProcessed;
-        public static bool dateNotifierTickComplete;
-        public static bool worldTickComplete;
-        public static bool mapPostTickComplete;
-        public static bool historyTickComplete;
-        public static bool miscellaneousComplete;
-
-        public static Dictionary<Thread, ThreadInfo> allWorkerThreads = new Dictionary<Thread, ThreadInfo>();
-        public static HashSet<int> initializedThreads = new HashSet<int>();
-
-        public static object allSustainersLock = new object();
-        //public static object map_AttackTargetReservationManager_reservations_Lock = new object();
-
-        public class ThreadInfo
-        {
-            public EventWaitHandle eventWaitStart = new AutoResetEvent(false);
-            public EventWaitHandle eventWaitDone = new AutoResetEvent(false);
-            public int timeoutExempt = 0;
-            public Thread thread;
-            public object[] safeFunctionRequest;
-            public object safeFunctionResult;
-        }
+        internal static readonly ParallelOptions ParallelOptions;
 
         static RimThreaded()
         {
-            InitializeAllThreadStatics();
-            CreateWorkerThreads();
-            monitorThread = new Thread(MonitorThreads) { IsBackground = true };
-            monitorThread.Start();
+            RimThreaded.TaskFactory = new();
+            RimThreaded.TaskScheduler = new(RimThreaded.TaskFactory);
+            ParallelOptions = GetParallelOptions(CancellationToken.None);
         }
 
-        internal static void WorkerThreadStart(object state)
+        // Get all assemblies that directly interface with the game; Ludeon and user mod assemblies.
+        public static IEnumerable<Assembly> GameAssemblies()
         {
-            if (state is ThreadedTickAction single)
+            yield return typeof(Game).Assembly;
+
+            foreach (var contentPack in LoadedModManager.runningMods)
             {
-                WorkerThreadTick(single);
-            }
-            else if (state is List<ThreadedTickAction> multi)
-            {
-                foreach (var item in multi)
+                foreach (var assembly in contentPack.assemblies.loadedAssemblies)
                 {
-                    WorkerThreadTick(item);
+                    yield return assembly;
                 }
             }
-            else
-            {
-                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} was not provided ThreadedTickAction as state object.");
-            }
         }
 
-        internal static void WorkerThreadTick(ThreadedTickAction action)
+        // Get all assemblies that can have member rebinding applied.
+        public static IEnumerable<Assembly> RebindingAssemblies()
         {
-            action.Handle.WaitOne();
-            try
-            {
-                action.Action.Invoke();
-            }
-            catch (Exception ex)
-            {
-                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} encountered error from tick action:\n{ex}");
-            }
+            // Adapted from RimThreadedHarmony.ApplyFieldReplacements()
+            yield return typeof(Game).Assembly;
+            yield return AccessTools.TypeByName("VFECore.VFECore")?.Assembly;
+            yield return AccessTools.TypeByName("GiddyUp.Mod_GiddyUp")?.Assembly;
+            yield return AccessTools.TypeByName("SpeakUp.SpeakUpMod")?.Assembly;
         }
 
-        internal class ThreadedTickAction
+        internal static ParallelOptions GetParallelOptions(CancellationToken token) => new()
         {
-            public Action Action;
-            public EventWaitHandle Handle = new ManualResetEvent(false);
-        }
-
-        public static void AddNormalTicking(object instance, Action<object> prepare, Action<object> tick)
-        {
-            Log.Message("Loading TickList: " + instance.ToString());
-            threadedTickLists.Insert(2,
-            new ThreadedTickList
-            {
-                prepareAction = () => prepare(instance),
-                tickAction = () => tick(instance)
-            }
-            );
-        }
-
-        public static List<ThreadedTickList> threadedTickLists = new List<ThreadedTickList>()
-        {
-            new ThreadedTickList
-            {
-                prepareAction = WindManager_Patch.WindManagerPrepare,
-                tickAction = WindManager_Patch.WindManagerListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = TickList_Patch.NormalThingPrepare,
-                tickAction = TickList_Patch.NormalThingTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = TickList_Patch.RareThingPrepare,
-                tickAction = TickList_Patch.RareThingTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = TickList_Patch.LongThingPrepare,
-                tickAction = TickList_Patch.LongThingTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = WorldPawns_Patch.WorldPawnsPrepare,
-                tickAction = WorldPawns_Patch.WorldPawnsListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = WorldObjectsHolder_Patch.WorldObjectsPrepare,
-                tickAction = WorldObjectsHolder_Patch.WorldObjectsListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = FactionManager_Patch.FactionsPrepare,
-                tickAction = FactionManager_Patch.FactionsListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = WorldComponentUtility_Patch.WorldComponentPrepare,
-                tickAction = WorldComponentUtility_Patch.WorldComponentListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = Map_Patch.MapsPostTickPrepare,
-                tickAction = Map_Patch.MapPostListTick
-            },
-            new ThreadedTickList
-            {
-                prepareAction = TransportShipManager_Patch.ShipObjectsPrepare,
-                tickAction = TransportShipManager_Patch.ShipObjectsTick
-            },     
-            new ThreadedTickList
-            {
-                prepareAction = IdeoManager_Patch.IdeosPrepare,
-                tickAction = IdeoManager_Patch.IdeosTick
-            }
+            TaskScheduler = RimThreaded.TaskScheduler,
+            MaxDegreeOfParallelism = RimThreaded.MaxDegreeOfParallelism,
+            CancellationToken = token
         };
-        public static void RestartAllWorkerThreads()
+
+        // TODO: parameters are a varargs of a method call turned into an array, using `ldftn` to turn the method call into a
+        //       function pointer. The array could be seen as a tuple of pointer, instance and parameters:
+        //       (IntPtr fn, object inst, object arg0, object arg1, ...)
+        private static void Invoke(params object[] parameters)
         {
-            foreach (Thread thread in allWorkerThreads.Keys.ToArray())
-            {
-                thread.Abort();
-            }
-            allWorkerThreads.Clear();
-            CreateWorkerThreads();
-        }
-        private static void CreateWorkerThreads()
-        {
-            while (allWorkerThreads.Count < maxThreads)
-            {
-                ThreadInfo threadInfo = CreateWorkerThread();
-                allWorkerThreads.Add(threadInfo.thread, threadInfo);
-            }
-        }
-        private static ThreadInfo CreateWorkerThread()
-        {
-            ThreadInfo threadInfo = new ThreadInfo { thread = new Thread(InitializeThread) { IsBackground = true } };
-            threadInfo.thread.Start(threadInfo);
-            return threadInfo;
-        }
-        private static void InitializeThread(object threadInfo)
-        {
-            ThreadInfo ti = (ThreadInfo)threadInfo;
-            InitializeAllThreadStatics();
-            ProcessTicks(ti);
+            throw new NotImplementedException();
         }
 
-        public static void InitializeAllThreadStatics()
+        public static void Invoke(params Action[] actions) => Parallel.Invoke(RimThreaded.ParallelOptions, actions);
+
+        public static void Invoke(CancellationToken token, params Action[] actions)
         {
-            
-
-            
-            CellFinder_Patch.InitializeThreadStatics();
-            ColoredText_Patch.InitializeThreadStatics();
-            CompCauseGameCondition_Patch.InitializeThreadStatics();
-            Dijkstra_Patch<IntVec3>.InitializeThreadStatics();
-            Dijkstra_Patch<Region>.InitializeThreadStatics();
-            Dijkstra_Patch<int>.InitializeThreadStatics();
-            GenTemperature_Patch.InitializeThreadStatics();
-            HaulingCache.InitializeThreadStatics();
-            PathFinder_Patch.InitializeThreadStatics();
-            PawnPathPool_Patch.InitializeThreadStatics();
-            JumboCell.InitializeThreadStatics();
-            PawnTextureAtlas_Patch.InitializeThreadStatics();
-            Reachability_Patch.InitializeThreadStatics();
-            ReachabilityCache_Patch.InitializeThreadStatics();
-            Region_Patch.InitializeThreadStatics();
-            RegionAndRoomUpdater_Patch.InitializeThreadStatics();
-            RegionDirtyer_Patch.InitializeThreadStatics();
-            RegionTraverser_Patch.InitializeThreadStatics();
-            SituationalThoughtHandler_Patch.InitializeThreadStatics();
-            SustainerManager_Patch.InitializeThreadStatics();
-            Toils_Ingest_Patch.InitializeThreadStatics();
-            World_Patch.InitializeThreadStatics();
-            WorldPawns_Patch.InitializeThreadStatics();
-            AttackTargetReservationManager_Patch.InitializeThreadStatics();
-            ReservationManager_Patch.InitializeThreadStatics();
-            ListerThings_Patch.InitializeThreadStatics();
-        }
-        private static void ProcessTicks(ThreadInfo threadInfo)
-        {
-            while (true)
-            {
-                threadInfo.eventWaitStart.WaitOne();
-                PrepareWorkLists();
-                for (int loopsCompleted = listsFullyProcessed; loopsCompleted < threadedTickLists.Count; loopsCompleted++)
-                {
-                    threadedTickLists[loopsCompleted].prepEventWaitStart.WaitOne();
-                    ExecuteTicks();
-                }
-                CompletePostWorkLists();
-                threadInfo.eventWaitDone.Set();
-            }
-        }
-        private static void CompletePostWorkLists()
-        {
-            if (Interlocked.Increment(ref workingOnDateNotifierTick) == 0)
-            {
-                try
-                {
-                    Find.DateNotifier.DateNotifierTick();
-                }
-                catch (Exception ex)
-                {
-                    Log.Error(ex.ToString());
-                }
-            }
-            if (Interlocked.Increment(ref workingOnHistoryTick) == 0)
-            {
-                try
-                {
-                    Find.History.HistoryTick();
-                }
-                catch (Exception ex10)
-                {
-                    Log.Error(ex10.ToString());
-                }
-            }
-            if (Interlocked.Increment(ref workingOnMiscellaneous) == 0)
-            {
-                try
-                {
-                    Find.Scenario.TickScenario();
-                }
-                catch (Exception ex2)
-                {
-                    Log.Error(ex2.ToString());
-                }
-
-                try
-                {
-                    Find.StoryWatcher.StoryWatcherTick();
-                }
-                catch (Exception ex4)
-                {
-                    Log.Error(ex4.ToString());
-                }
-
-                try
-                {
-                    Find.GameEnder.GameEndTick();
-                }
-                catch (Exception ex5)
-                {
-                    Log.Error(ex5.ToString());
-                }
-
-                try
-                {
-                    Find.Storyteller.StorytellerTick();
-                }
-                catch (Exception ex6)
-                {
-                    Log.Error(ex6.ToString());
-                }
-
-                try
-                {
-                    Find.TaleManager.TaleManagerTick();
-                }
-                catch (Exception ex7)
-                {
-                    Log.Error(ex7.ToString());
-                }
-
-                try
-                {
-                    Find.QuestManager.QuestManagerTick();
-                }
-                catch (Exception ex8)
-                {
-                    Log.Error(ex8.ToString());
-                }
-
-                try
-                {
-                    Find.World.WorldPostTick();
-                }
-                catch (Exception ex9)
-                {
-                    Log.Error(ex9.ToString());
-                }
-
-                GameComponentUtility.GameComponentTick();
-                try
-                {
-                    Find.LetterStack.LetterStackTick();
-                }
-                catch (Exception ex11)
-                {
-                    Log.Error(ex11.ToString());
-                }
-
-                try
-                {
-                    Find.Autosaver.AutosaverTick();
-                }
-                catch (Exception ex12)
-                {
-                    Log.Error(ex12.ToString());
-                }
-
-                try
-                {
-                    FilthMonitor.FilthMonitorTick();
-                    //FilthMonitor2.FilthMonitorTick();
-                }
-                catch (Exception ex13)
-                {
-                    Log.Error(ex13.ToString());
-                }
-            }
-        }
-        private static void PrepareWorkLists()
-        {
-            foreach (ThreadedTickList tickList in threadedTickLists)
-            {
-                if (Interlocked.Increment(ref tickList.preparing) != 0) continue;
-                tickList.prepareAction();
-                tickList.readyToTick = true;
-                threadedTickLists[Interlocked.Increment(ref currentPrepsDone)].prepEventWaitStart.Set();
-            }
+            Parallel.Invoke(GetParallelOptions(token), actions);
         }
 
-        private static void ExecuteTicks()
+        public static void Invoke(IEnumerable<Action> actions) => Invoke(actions.ToArray());
+
+        public static ParallelLoopResult ForEach<T>(IEnumerable<T> source, Action<T> action, ParallelOptions parallelOptions = null)
         {
-            foreach (ThreadedTickList tickList in threadedTickLists)
-            {
-                if (!tickList.readyToTick) continue;
-                tickList.tickAction();
-                tickList.readyToTick = false;
-                if (Interlocked.Increment(ref tickList.threadCount) == 0)
-                    Interlocked.Increment(ref listsFullyProcessed);
-                break;
-            }
+            return Parallel.ForEach(source, parallelOptions ?? RimThreaded.ParallelOptions, action);
         }
-
-        private static void MonitorThreads()
-        {
-            while (true)
-            {
-                MonitorWaitHandle.WaitOne();
-
-                foreach (ThreadedTickList tickList in threadedTickLists)
-                {
-                    tickList.preparing = -1;
-                    tickList.threadCount = -1;
-                }
-                //OneTickPools Ticks go here.
-                //OneTickPool<List<Thing>>.Tick(null);
-                //OneTickPool<List<Region>>.Tick(null);
-
-                listsFullyProcessed = 0;
-                workingOnDateNotifierTick = -1;
-                workingOnWorldTick = -1;
-                workingOnMapPostTick = -1;
-                workingOnHistoryTick = -1;
-                currentPrepsDone = -1;
-                workingOnMiscellaneous = -1;
-                dateNotifierTickComplete = false;
-                worldTickComplete = false;
-                mapPostTickComplete = false;
-                historyTickComplete = false;
-                miscellaneousComplete = false;
-                foreach (ThreadInfo threadInfo in allWorkerThreads.Values)
-                {
-                    threadInfo.eventWaitStart.Set();
-                }
-                List<KeyValuePair<Thread, ThreadInfo>> threadPairs = allWorkerThreads.ToList();
-                foreach (KeyValuePair<Thread, ThreadInfo> threadPair in threadPairs)
-                {
-                    ThreadInfo threadInfo = threadPair.Value;
-                    if (!threadInfo.eventWaitDone.WaitOne(timeoutMS))
-                    {
-                        if (threadInfo.timeoutExempt == 0)
-                        {
-                            AbortThread(threadInfo, threadPair.Key);
-                        }
-                        else
-                        {
-                            if (!threadInfo.eventWaitDone.WaitOne(threadInfo.timeoutExempt))
-                            {
-                                AbortThread(threadInfo, threadPair.Key);
-                            }
-                            threadInfo.timeoutExempt = 0;
-                        }
-                    }
-                }
-                allWorkerThreadsFinished = true;
-                MainWaitHandle.Set();
-            }
-        }
-
-        public static void AbortThread(ThreadInfo threadInfo, Thread thread)
-        {
-            Log.Error("Thread: " + threadInfo.thread + " did not finish within " + timeoutMS + "ms. Restarting thread...");
-            thread.Abort();
-            allWorkerThreads.Remove(thread);
-            CreateWorkerThread();
-        }
-
-        public static int frameCount = 0;
-        public static TimeSpan halfTimeoutMS = new TimeSpan(0,0,0,0,4000);
-
-        public static void MainThreadWaitLoop(TickManager tickManager)
-        {
-            frameCount = Time.frameCount;
-            callingTickManager = tickManager;
-            allWorkerThreadsFinished = false;
-            MonitorWaitHandle.Set();
-
-            while (!allWorkerThreadsFinished)
-            {
-                MainWaitHandle.WaitOne();
-                RespondToSafeFunctionRequests();
-                MainPlayOneShot(); //TODO: is PlayOneShot section still needed?
-            }
-        }
-
-        private static void MainPlayOneShot()
-        {
-            while (PlayOneShot.Count > 0)
-            {
-                if (PlayOneShot.TryDequeue(out Tuple<SoundDef, SoundInfo> s))
-                {
-                    s.Item1.PlayOneShot(s.Item2);
-                }
-            }
-            while (PlayOneShotCamera.Count > 0)
-            {
-                if (PlayOneShotCamera.TryDequeue(out Tuple<SoundDef, Map> s))
-                {
-                    s.Item1.PlayOneShotOnCamera(s.Item2);
-                }
-            }
-        }
-
-        private static void RespondToSafeFunctionRequests()
-        {
-            foreach (ThreadInfo threadInfo in allWorkerThreads.Values)
-            {
-                object[] functionAndParameters = threadInfo.safeFunctionRequest;
-                if (functionAndParameters == null) continue;
-                object[] parameters = (object[])functionAndParameters[1];
-                switch (functionAndParameters[0])
-                {
-                    case Func<object[], object> safeFunction:
-                        threadInfo.safeFunctionResult = safeFunction(parameters);
-                        break;
-                    case Action<object[]> safeAction:
-                        safeAction(parameters);
-                        break;
-                    default:
-                        Log.Error("First parameter of thread-safe function request was not an action or function");
-                        break;
-                }
-                threadInfo.safeFunctionRequest = null;
-                threadInfo.eventWaitStart.Set();
-            }
-        }
-
-
     }
-
 }

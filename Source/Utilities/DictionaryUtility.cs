@@ -39,6 +39,7 @@ namespace RimThreaded.Utilities
             return dict;
         }
 
+        // For multi-dictionaries, creates a multi-value store if it's not present.
         public static V NewValueIfAbsent<K, V>(this Dictionary<K, V> dict, K key) where V : new()
         {
             dict.TryComputeValueIfAbsent(key, () => new(), out V value);

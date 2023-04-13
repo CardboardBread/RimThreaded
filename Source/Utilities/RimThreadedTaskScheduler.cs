@@ -1,43 +1,75 @@
-﻿using System;
+﻿using HarmonyLib;
+using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using Verse;
 
 namespace RimThreaded.Utilities
 {
-    public class RimThreadedTaskScheduler : TaskScheduler
+    public class RimThreadedTaskScheduler : TaskScheduler, IDisposable
     {
-        // Indicates whether the current thread is processing work items.
-        [ThreadStatic]
-        private static bool _currentThreadWorking;
+        private static ThreadLocal<bool> _currentThreadWorking = new(() => false);
 
-        // The list of tasks to be executed.
+        private readonly TaskFactory _factory;
+        private readonly object _lockObj = new();
         private readonly LinkedList<Task> _tasks = new();
+        private int _delegatesRunning = 0;
+        private bool _isDisposed = false;
 
-        // Indicates whether the scheduler is currently processing work items.
-        private int _delegatesHandled = 0;
-
-        public RimThreadedTaskScheduler()
+        public RimThreadedTaskScheduler(TaskFactory factory = null)
         {
-            ThreadCount = SystemInfo.processorCount;
-            if (ThreadCount < 1) throw new ArgumentOutOfRangeException("UnityEngine reported processor count is unusable!");
+            if (SystemInfo.processorCount < 1)
+            {
+                var field = AccessTools.Field(typeof(SystemInfo), nameof(SystemInfo.processorCount));
+                throw new ArgumentOutOfRangeException(field.ToString());
+            }
+
+            _factory = factory ?? new(this);
         }
 
-        public int ThreadCount { get; set; }
+        public override int MaximumConcurrencyLevel => RimThreaded.MaximumConcurrencyLevel;
+        
+        public bool IsDisposed
+        {
+            get
+            {
+                lock (_lockObj) return _isDisposed;
+            }
+            private set
+            {
+                lock (_lockObj) _isDisposed = value;
+            }
+        }
 
-        // Gets the maximum concurrency level supported by this scheduler.
-        public override int MaximumConcurrencyLevel => ThreadCount;
+        public int DelegatesRunning
+        {
+            get
+            {
+                lock (_lockObj) return _delegatesRunning;
+            }
+            private set
+            {
+                lock (_lockObj) _delegatesRunning = value;
+            }
+        }
 
-        // Gets an enumerable of the tasks currently scheduled on this scheduler.
+        // Lock will be held until the `DisposableLock` is disposed.
+        public DisposableLock<LinkedList<Task>> Tasks => new(_tasks, _lockObj);
+
         protected override IEnumerable<Task> GetScheduledTasks()
         {
+            if (_isDisposed)
+            {
+                throw new InvalidOperationException();
+            }
+
             bool lockTaken = false;
             try
             {
-                Monitor.TryEnter(_tasks, ref lockTaken);
+                Monitor.TryEnter(_lockObj, ref lockTaken);
                 if (lockTaken)
                 {
                     return _tasks;
@@ -51,49 +83,79 @@ namespace RimThreaded.Utilities
             {
                 if (lockTaken)
                 {
-                    Monitor.Exit(_tasks);
+                    Monitor.Exit(_lockObj);
                 }
             }
         }
 
-        // Queues a task to the scheduler.
         protected override void QueueTask(Task task)
         {
-            // Add the task to the list of tasks to be processed.  If there aren't enough
-            // delegates currently queued or running to process tasks, schedule another.
-            lock (_tasks)
+            if (IsDisposed)
             {
-                _tasks.AddLast(task);
-                if (_delegatesHandled < ThreadCount)
+                throw new InvalidOperationException();
+            }
+
+            if (task is null)
+            {
+                throw new ArgumentNullException(nameof(task));
+            }
+            
+            lock (_lockObj)
+            {
+                if (_delegatesRunning < MaximumConcurrencyLevel)
                 {
-                    _delegatesHandled++;
-                    SignalThreadPool();
+                    ThreadPool.UnsafeQueueUserWorkItem(_DispatchStart, task);
+                    _delegatesRunning++;
+                }
+                else
+                {
+                    _tasks.AddLast(task);
                 }
             }
         }
 
-        // Attempt to remove a previously scheduled task from the scheduler.
         protected override bool TryDequeue(Task task)
         {
-            lock ( _tasks)
+            if (IsDisposed)
+            {
+                throw new InvalidOperationException();
+            }
+
+            if (task is null)
+            {
+                throw new ArgumentNullException(nameof(task));
+            }
+
+            lock (_lockObj)
             {
                 return _tasks.Remove(task);
             }
         }
 
-        // Attempts to execute the specified task on the current thread.
         protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
         {
-            // If this thread isn't already processing a task, we don't support inlining.
-            if (!_currentThreadWorking)
+            if (IsDisposed)
+            {
+                throw new InvalidOperationException();
+            }
+
+            if (task is null)
+            {
+                throw new ArgumentNullException(nameof(task));
+            }
+
+            if (task.IsCompleted)
+            {
+                throw new InvalidOperationException();
+            }
+            
+            if (!_currentThreadWorking.Value)
             {
                 return false;
             }
 
-            // If the task was previously queued, remove it from the queue.
             if (taskWasPreviouslyQueued)
             {
-                // Try to run the task.
                 if (TryDequeue(task))
                 {
                     return base.TryExecuteTask(task);
@@ -109,45 +171,105 @@ namespace RimThreaded.Utilities
             }
         }
 
-        // Inform the ThreadPool that there's work to be executed for this scheduler.
-        private void SignalThreadPool()
+        // System.Threading.WaitCallback
+        private void _DispatchStart(object state)
         {
-            ThreadPool.UnsafeQueueUserWorkItem(obj =>
+            _currentThreadWorking.Value = true;
+
+            try
             {
-                // Note that the current thread is now processing work items.
-                // This is necessary to enable inlining of tasks into this thread.
-                _currentThreadWorking = true;
-                try
+                if (state is Task single)
                 {
-                    // Process all available items in the queue.
-                    while (true)
+                    base.TryExecuteTask(single);
+                }
+                else if (state is IEnumerable<Task> multi)
+                {
+                    var first = multi.First();
+
+                    var rest = multi.Skip(1);
+                    foreach (Task extra in rest)
                     {
-                        Task item;
-                        lock (_tasks)
-                        {
-                            // When there are no more items to be processed,
-                            // note that we're done processing, and get out.
-                            if (!_tasks.Any())
-                            {
-                                _delegatesHandled--;
-                                break;
-                            }
-
-                            // Get the next item from the queue.
-                            item = _tasks.First.Value;
-                            _tasks.RemoveFirst();
-                        }
-
-                        // Execute the task we pulled out of the queue.
-                        base.TryExecuteTask(item);
+                        QueueTask(extra);
                     }
+
+                    base.TryExecuteTask(first);
                 }
-                finally
+                else if (state is Action immediate)
                 {
-                    // We're done processing items on the current thread.
-                    _currentThreadWorking = false;
+                    var wrap = new Task(immediate);
+                    base.TryExecuteTask(wrap);
                 }
-            }, this);
+                else
+                {
+                    throw new ArgumentException($"RT Worker {Thread.CurrentThread.ManagedThreadId} was not provided supported state object", nameof(state));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} encountered error while executing task:\n{ex}");
+            }
+            finally
+            {
+                if (TryGetTask(out var next))
+                {
+                    _DispatchStart(next);
+                }
+
+                _currentThreadWorking.Value = false;
+                DelegatesRunning--;
+            }
+        }
+
+        // Try to remove the first task in the list.
+        protected bool TryGetTask(out Task task)
+        {
+            if (IsDisposed)
+            {
+                throw new InvalidOperationException();
+            }
+
+            lock (_lockObj)
+            {
+                var head = _tasks.First;
+                if (head == null)
+                {
+                    task = null;
+                    return false;
+                }
+
+                task = head.Value;
+                _tasks.RemoveFirst();
+                return true;
+            }
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (!IsDisposed)
+            {
+                if (disposing)
+                {
+                    // TODO: dispose managed state (managed objects)
+                }
+
+                // TODO: free unmanaged resources (unmanaged objects) and override finalizer
+                // TODO: set large fields to null
+                IsDisposed = true;
+            }
+        }
+
+        // TODO: override finalizer only if 'Dispose(bool disposing)' has code to free unmanaged resources
+        ~RimThreadedTaskScheduler()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: false);
+        }
+
+        public void Dispose()
+        {
+            // Do not change this code. Put cleanup code in 'Dispose(bool disposing)' method
+            Dispose(disposing: true);
+            GC.SuppressFinalize(this);
         }
     }
 }
