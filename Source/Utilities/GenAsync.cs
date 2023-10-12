@@ -44,7 +44,7 @@ namespace RimThreaded.Utilities
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"Error in {nameof(SlicedForEach)}: {ex}");
+                        RTLog.Error($"Error in {nameof(SlicedForEach)}: {ex}");
                     }
                 }
             }

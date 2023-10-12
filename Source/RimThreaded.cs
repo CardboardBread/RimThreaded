@@ -23,26 +23,28 @@ namespace RimThreaded
 
         static RimThreaded()
         {
-            RimThreaded.TaskFactory = new();
-            RimThreaded.TaskScheduler = new(RimThreaded.TaskFactory);
+            RimThreaded.TaskScheduler = new();
+            RimThreaded.TaskFactory = new(RimThreaded.TaskScheduler);
             ParallelOptions = GetParallelOptions(CancellationToken.None);
         }
 
-        // Get all assemblies that directly interface with the game; Ludeon and user mod assemblies.
+        /// <summary>
+        /// Get all assemblies that directly interface with the game; Ludeon and user mod assemblies.
+        /// </summary>
         public static IEnumerable<Assembly> GameAssemblies()
         {
             yield return typeof(Game).Assembly;
-
-            foreach (var contentPack in LoadedModManager.runningMods)
+            foreach (var assembly in from contentPack in LoadedModManager.runningMods
+                                     from assembly in contentPack.assemblies.loadedAssemblies
+                                     select assembly)
             {
-                foreach (var assembly in contentPack.assemblies.loadedAssemblies)
-                {
-                    yield return assembly;
-                }
+                yield return assembly;
             }
         }
 
-        // Get all assemblies that can have member rebinding applied.
+        /// <summary>
+        /// Get all assemblies that can have member rebinding applied.
+        /// </summary>
         public static IEnumerable<Assembly> RebindingAssemblies()
         {
             // Adapted from RimThreadedHarmony.ApplyFieldReplacements()
@@ -58,14 +60,6 @@ namespace RimThreaded
             MaxDegreeOfParallelism = RimThreaded.MaxDegreeOfParallelism,
             CancellationToken = token
         };
-
-        // TODO: parameters are a varargs of a method call turned into an array, using `ldftn` to turn the method call into a
-        //       function pointer. The array could be seen as a tuple of pointer, instance and parameters:
-        //       (IntPtr fn, object inst, object arg0, object arg1, ...)
-        private static void Invoke(params object[] parameters)
-        {
-            throw new NotImplementedException();
-        }
 
         public static void Invoke(params Action[] actions) => Parallel.Invoke(RimThreaded.ParallelOptions, actions);
 

@@ -1,8 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace RimThreaded
 {
@@ -54,6 +51,7 @@ namespace RimThreaded
                 yield return constructor;
             }
 
+            // TODO: verify these methods aren't picked up by type.GetMethods(AccessTools.allDeclared))
             foreach (var property in type.GetProperties(AccessTools.allDeclared))
             {
                 if (property.GetMethod is MethodInfo getMethod)
@@ -66,6 +64,20 @@ namespace RimThreaded
                     yield return setMethod;
                 }
             }
+        }
+
+        private static readonly ConditionalWeakTable<MethodBase, string> TraceSignatures = new();
+
+        public static string GetTraceSignature(this MethodBase method) => TraceSignatures.GetValue(method, BuildTraceSignature);
+
+        public static string BuildTraceSignature(MethodBase method)
+        {
+            string signature;
+            var paramNames = method.GetParameters().Select(p => p.ParameterType.FullName + p.Name);
+            var genericNames = method.GetGenericArguments().Select(g => g.FullName);
+            var generics = genericNames.Count() > 0 ? "<" + string.Join(", ", genericNames) + ">" : string.Empty;
+            signature = method.DeclaringType.FullName + "." + method.Name + generics + "(" + string.Join(", ", paramNames) + ")";
+            return signature;
         }
     }
 }

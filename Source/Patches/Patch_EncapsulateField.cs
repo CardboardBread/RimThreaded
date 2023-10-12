@@ -1,12 +1,7 @@
-﻿using Newtonsoft.Json;
-using RimThreaded.Patching;
+﻿using RimThreaded.Patching;
 using RimThreaded.Utilities;
-using System.IO;
 using System.Linq;
 using System.Reflection.Emit;
-using System.Runtime.Caching;
-using System.Text;
-using static HarmonyLib.Code;
 
 namespace RimThreaded.Patches
 {
@@ -16,19 +11,26 @@ namespace RimThreaded.Patches
     [HarmonyPatch]
     public static class Patch_EncapsulateField
     {
-        private const string CacheFolderName = nameof(Patch_EncapsulateField);
-        private static HashSet<EncapsulateFieldPatchAttribute> attributes = new();
-        private static HashSet<FieldInfo> targetFields = new();
-        private static Dictionary<FieldInfo, EncapsulateFieldPatchAttribute> attributesByField = new();
-
-        private static MemoryCache TargetMethodsCache = new($"{nameof(Patch_EncapsulateField)}_{nameof(HarmonyTargetMethods)}");
-        private static Dictionary<MethodBase, HashSet<int>> addressingTargetLocations = new();
+        private static HashSet<EncapsulateFieldPatchAttribute> attributes;
+        private static HashSet<FieldInfo> targetFields;
+        private static Dictionary<FieldInfo, EncapsulateFieldPatchAttribute> attributesByField;
 
         [HarmonyPrepare]
         public static bool Prepare(Harmony harmony, MethodBase original = null)
         {
+            if (harmony is null)
+            {
+                throw new ArgumentNullException(nameof(harmony));
+            }
+
             if (original == null)
             {
+                RTLog.HarmonyDebugMessage($"Starting {nameof(Patch_EncapsulateField)}");
+
+                attributes = new();
+                targetFields = new();
+                attributesByField = new();
+
                 // Grab all the encapsulate patches in this mod
                 foreach (var attribute in RimThreadedMod.Instance.GetLocalAttributesByType<EncapsulateFieldPatchAttribute>())
                 {
@@ -41,6 +43,7 @@ namespace RimThreaded.Patches
             }
             else
             {
+                RTLog.HarmonyDebugMessage($"Encapsulating fields on {original}");
                 return true;
             }
         }
@@ -49,109 +52,33 @@ namespace RimThreaded.Patches
         [HarmonyTargetMethods]
         public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
         {
-            foreach (var assembly in RimThreaded.GameAssemblies())
+            if (harmony is null)
             {
-                // Check if the methods we need have already been found before, and skip a bunch of expensive searching.
-                if (!TryGetCachedResults(assembly, out var results))
-                {
-                    // No cached result found, so we have to manually search and cache those results
-                    results = Search(assembly);
-                    SetCachedResults(assembly, results);
-                }
-
-                foreach (var methodBase in results)
-                {
-                    yield return methodBase;
-                }
+                throw new ArgumentNullException(nameof(harmony));
             }
 
-            // Search every method, constructor, getter and setter for targets.
-            static IEnumerable<MethodBase> Search(Assembly assembly)
+            foreach (var target in from assembly in RimThreaded.GameAssemblies().AsParallel()
+                                   from methodBase in assembly.AllMethodBases()
+                                   where FindAllTargetedInstructions(methodBase).Count() > 0
+                                   select methodBase)
             {
-                return from methodBase in assembly.AllMethodBases().AsParallel()
-                       where ScanMethod(methodBase).Any()
-                       select methodBase;
+                yield return target;
             }
+        }
 
-            // Quickly scan the body of a method for any targeted fields
-            static IEnumerable<int> ScanMethod(MethodBase method)
+        private static IEnumerable<int> FindAllTargetedInstructions(MethodBase method, HarmonyMethodBody methodBody = null)
+        {
+            methodBody ??= RimThreadedHarmony.ReadMethodBody(method);
+            foreach (var ((opcode, operand), index) in methodBody.WithIndex())
             {
-                foreach (var ((opcode, operand), index) in RimThreadedHarmony.ReadMethodBody(method).WithIndex())
-                {
-                    if (IsInstructionTargeted(opcode, operand, out var isAddressed))
-                    {
-                        if (isAddressed)
-                        {
-                            addressingTargetLocations.NewValueIfAbsent(method).Add(index);
-                        }
-                        yield return index;
-                    }
-                }
-            }
-
-            static bool IsInstructionTargeted(OpCode opcode, object operand, out bool isAddressed)
-            {
-                isAddressed = false;
                 if (operand is FieldInfo field && targetFields.Contains(field))
                 {
                     if (opcode == OpCodes.Ldflda || opcode == OpCodes.Ldsflda)
                     {
-                        isAddressed = true;
-                        Log.ErrorOnce($"The address of a field marked for rebinding is used, rebinding cannot be completed for: {field}", field.GetHashCode());
+                        RTLog.Error($"{nameof(Patch_EncapsulateField)} detected addressing of {field} at: {method.GetTraceSignature()}:{index}");
                     }
-                    return true;
+                    yield return index;
                 }
-                else
-                {
-                    return false;
-                }
-            }
-
-            // Check if the memory cache has results still in-memory, otherwise check if results were saved to file.
-            static bool TryGetCachedResults(Assembly assembly, out IEnumerable<MethodBase> results)
-            {
-                var memoryKey = GetMemoryKey(assembly);
-                if (TargetMethodsCache.Get(memoryKey) is List<MethodBase> memoryResults)
-                {
-                    results = memoryResults;
-                    return true;
-                }
-
-                var filePath = GetCacheFilePath(assembly);
-                if (File.Exists(filePath))
-                {
-                    var fileText = File.ReadAllText(filePath);
-                    var fileResults = JsonConvert.DeserializeObject<List<MethodBase>>(fileText);
-                    results = fileResults;
-                    return true;
-                }
-
-                results = Enumerable.Empty<MethodBase>();
-                return false;
-            }
-
-            static void SetCachedResults(Assembly assembly, IEnumerable<MethodBase> results)
-            {
-                var resultsCopy = results.ToList();
-                var memoryKey = GetMemoryKey(assembly);
-                TargetMethodsCache.Set(memoryKey, resultsCopy, null);
-
-                var filePath = GetCacheFilePath(assembly);
-                var fileText = JsonConvert.SerializeObject(resultsCopy, Formatting.Indented);
-                File.WriteAllText(filePath, fileText);
-            }
-
-            static string GetMemoryKey(Assembly assembly)
-            {
-                return assembly.ManifestModule.ModuleVersionId.ToString();
-            }
-
-            static string GetCacheFilePath(Assembly assembly)
-            {
-                var name = assembly.GetName().Name;
-                var version = assembly.ManifestModule.ModuleVersionId;
-                var filename = $"{name}-{version}.cache.json";
-                return Path.Combine(RimThreadedMod.ExtrasFolderPath, CacheFolderName, filename);
             }
         }
 
@@ -160,6 +87,19 @@ namespace RimThreaded.Patches
                                                            ILGenerator iLGenerator,
                                                            MethodBase original)
         {
+            if (instructions is null)
+            {
+                throw new ArgumentNullException(nameof(instructions));
+            }
+            if (iLGenerator is null)
+            {
+                throw new ArgumentNullException(nameof(iLGenerator));
+            }
+            if (original is null)
+            {
+                throw new ArgumentNullException(nameof(original));
+            }
+
             foreach (var instruction in instructions)
             {
                 if (instruction.operand is FieldInfo field &&
@@ -191,19 +131,11 @@ namespace RimThreaded.Patches
                     attributesByField = null;
                     targetFields.Clear();
                     targetFields = null;
-                    TargetMethodsCache.Dispose();
                 }
 
-                if (Prefs.LogVerbose && addressingTargetLocations.Any())
+                if (Prefs.DevMode && Prefs.LogVerbose)
                 {
-                    Log.Message($"[RimThreaded] Issues discovered with executing {nameof(Patch_EncapsulateField)}: {addressingTargetLocations.Count} addressing conflicts discovered");
-                    foreach (var method in addressingTargetLocations.Keys)
-                    {
-                        foreach (var index in addressingTargetLocations[method])
-                        {
-                            Log.Message($"{method.DeclaringType}.{method.Name}:{index}");
-                        }
-                    }
+                    
                 }
             }
         }

@@ -2,7 +2,9 @@
 
 namespace RimThreaded.Utilities
 {
-    // Template for attributes that can be indicated of their own location.
+    /// <summary>
+    /// Template for attributes that can be indicated of their own location.
+    /// </summary>
     public interface ILocationAware
     {
         MemberInfo Parent { get; }

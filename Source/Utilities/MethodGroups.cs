@@ -52,6 +52,6 @@ namespace RimThreaded.Utilities
 
         public static MethodBase AsBase(this Delegate del) => del.Method;
 
-        public static HarmonyMethod AsHarmony(this Delegate del) => new(del.Method);
+        public static HarmonyMethod ToHarmony(this Delegate del) => new(del.Method);
     }
 }

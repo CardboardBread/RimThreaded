@@ -18,20 +18,26 @@ using System.Threading;
 namespace RimThreaded
 {
     // Class for handling all the mod-relevant actions/information of RimThreaded.
+    // TODO: for adding fields to existing types, ConditionalWeakTable
     public class RimThreadedMod : Mod
     {
-        private const string PatchExportsFolderName = "PatchExports";
+        public delegate void DiscoverAttributeDelegate(MemberInfo member, object[] attributes);
+
+        public const string PatchExportsFolderName = "PatchExports";
         public static readonly string ExtrasFolderPathName = typeof(RimThreadedMod).Namespace;
 
         public static string ExtrasFolderPath => GenFilePaths.FolderUnderSaveData(ExtrasFolderPathName);
-        //public static string VersionedExtrasFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
+        public static string VersionedExtrasFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
         public static string PatchExportsFolderPath => Path.Combine(ExtrasFolderPath, PatchExportsFolderName);
-        //public static string VersionedPatchExportsFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
+        public static string VersionedPatchExportsFolderPath => Path.Combine(ExtrasFolderPath, ModVersion.ToString());
 
         public static readonly Version ModVersion = typeof(RimThreadedMod).Assembly.GetName().Version; // TODO: About.xml might have a property for defining mod versions
 
         public static RimThreadedMod Instance => LoadedModManager.GetMod<RimThreadedMod>();
 
+        /// <summary>
+        /// Mod entry point, called before instance constructor.
+        /// </summary>
         static RimThreadedMod()
         {
         }
@@ -40,12 +46,14 @@ namespace RimThreaded
         //       constructor contains `LoadedModManager.LoadAllActiveMods`.
         //       As a backup, we can prefix/postfix `LoadedModManager.ClearCachedPatches` since it's the last method in
         //       `LoadedModManager.LoadAllActiveMods` to be called, and is only called by `LoadedModManager.LoadAllActiveMods`
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
+        /// <summary>
+        /// Search for and report non-Harmony conflicts with other mods.
+        /// </summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
         internal static void DiscoverModConflicts()
         {
-            Log.Message("[RimThreaded] Discovering mod conflicts...");
-            // TODO: search for and report non-Harmony conflicts with other mods
+            RTLog.Message("Discovering mod conflicts...");
+            // TODO: 
         }
 
         // TODO: ExportTranspiledMethods alongside config file(s). 
@@ -427,75 +435,85 @@ namespace RimThreaded
         internal readonly string _ReplacementsJsonText;
         private readonly Dictionary<Type, List<object>> localAttributesByType = new();
 
+        /// <summary>
+        /// Mod entry point, called from <see cref="LoadedModManager.CreateModClasses"/>.
+        /// </summary>
         public RimThreadedMod(ModContentPack content) : base(content)
         {
-            Log.Message($"[RimThreaded] Initializing version {ModVersion}...");
+            RTLog.Message($"Initializing version {ModVersion}...");
             MainThread = Thread.CurrentThread;
             MainSyncContext = SynchronizationContext.Current;
 
             bool originalHarmonyDebug = Harmony.DEBUG;
             if (Prefs.LogVerbose)
             {
-                Log.Message($"[RimThreaded] {nameof(Prefs.LogVerbose)} preference enabled, enabling Harmony full debugging mode for RimThreaded patching...");
+                RTLog.Message($"{nameof(Prefs.LogVerbose)} preference enabled, enabling Harmony full debugging mode for RimThreaded patching...");
                 Harmony.DEBUG = true;
             }
 
-            HarmonyInst = new(content.PackageId);
             Settings = GetSettings<RimThreadedSettings>();
+            HarmonyInst = new(content.PackageId);
             GameVersion = content.ModMetaData.SupportedVersionsReadOnly.First().ToString(); // TODO: verify this is correct.
             AssembliesFolder = Path.Combine(content.RootDir, GameVersion, "Assemblies");
             _ReplacementsJsonPath = Path.Combine(AssembliesFolder, $"replacements_{GameVersion}.json");
             _ReplacementsJsonText = File.ReadAllText(_ReplacementsJsonPath);
 
             // Load replacements and patches
-            DiscoverAttributes();
+            GetAllLocalAttributes().Do(attr => DiscoverAttribute(attr, attr.GetCustomAttributes(inherit: true)));
 
-            Log.Message($"[RimThreaded] Patching methods...");
+            RTLog.Message($"Patching methods...");
+            HarmonyInst.PatchAll();
             // Apply field replacement patch(es)
             // Apply destructive patches
             // Apply default patches
             // Apply non-destructive patches
             // Apply mod compatibility patches
-            Log.Message("[RimThreaded] Patching is complete.");
+            RTLog.Message("Patching is complete.");
 
             // Conditionally export transpiled methods
-            if (Prefs.LogVerbose && Settings.ExportTranspiledMethods)
+            if (Settings.ExportTranspiledMethods)
             {
                 ExportTranspiledMethods();
             }
 
             if (Prefs.LogVerbose)
             {
-                Log.Message($"[RimThreaded] {nameof(Prefs.LogVerbose)} preference enabled, returning Harmony full debugging mode to original state...");
+                RTLog.Message($"{nameof(Prefs.LogVerbose)} preference enabled, returning Harmony full debugging mode to original state...");
                 Harmony.DEBUG = originalHarmonyDebug;
             }
 
-            Log.Message($"[RimThreaded] Finished initializing version {ModVersion}.");
+            RTLog.Message($"Finished initializing version {ModVersion}.");
         }
 
+        // A convenience method so any code that needs every single local declaration of a local attribute, doesn't have to scan the whole assembly for them.
         public IEnumerable<T> GetLocalAttributesByType<T>() where T : Attribute => localAttributesByType.GetValueSafe(typeof(T))?.Cast<T>();
 
         // Rather than have each attribute search all local types for instances of itself, we'll do one pass over every local
         // type and try to initialize all the known attributes.
-        internal void DiscoverAttributes()
+        internal IEnumerable<MemberInfo> GetAllLocalAttributes()
         {
-            foreach (var localType in RimThreaded.LocalTypes)
+            foreach (var type in RimThreaded.LocalTypes)
             {
-                DiscoverAttribute(localType);
+                yield return type;
 
-                foreach (var field in localType.GetFields(AccessTools.allDeclared))
+                foreach (var field in type.GetFields(AccessTools.allDeclared))
                 {
-                    DiscoverAttribute(field);
+                    yield return field;
                 }
 
-                foreach (var method in localType.GetMethods(AccessTools.allDeclared))
+                foreach (var method in type.GetMethods(AccessTools.allDeclared))
                 {
-                    DiscoverAttribute(method);
+                    yield return method;
                 }
 
-                foreach (var constructor in localType.GetConstructors(AccessTools.allDeclared))
+                foreach (var constructor in type.GetConstructors(AccessTools.allDeclared))
                 {
-                    DiscoverAttribute(constructor);
+                    yield return constructor;
+                }
+
+                foreach (var property in type.GetProperties(AccessTools.allDeclared))
+                {
+                    yield return property;
                 }
             }
         }
@@ -515,7 +533,7 @@ namespace RimThreaded
                     }
                     catch (Exception ex)
                     {
-                        Log.Error($"[RimThreaded] Error in locating `{locationAware}`: {ex}");
+                        RTLog.Error($"Error in locating `{locationAware}` on `{member}`: {ex}");
                     }
                 }
 

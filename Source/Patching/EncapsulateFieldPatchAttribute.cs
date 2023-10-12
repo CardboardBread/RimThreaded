@@ -44,7 +44,7 @@ namespace RimThreaded.Patching
             MemberName = memberName;
         }
 
-        public override MemberInfo ResolveTarget()
+        internal override MemberInfo ResolveTarget()
         {
             if (ResolveDeclaringType() is Type declaring && ResolveMemberName() is string member)
             {

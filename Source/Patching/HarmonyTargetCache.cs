@@ -1,289 +1,144 @@
 ﻿using Newtonsoft.Json;
-using System;
-using System.Collections.Generic;
+using RimThreaded.Utilities;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.Caching;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace RimThreaded.Patching
 {
-    // internally group the results of a fresh `HarmonyTargetMethods` by assembly, and store each group as separate files
-    // TODO: consider a meta-patch that adds this functionality to existing harmony patch classes that use `HarmonyTargetMethods`
-    public class HarmonyTargetCache : IDisposable
+    // Cache the results of HarmonyTargetMethods for each assembly, since they are versioned.
+    // Cached results will be obnly returned for identical assembly versions; if a mod updates then the results should be regenerated.
+    // Caching for a patch should be versioned by RimThreaded as well, such that if the technique to find results changes.
+    // For example, RimThreaded version 1.2.3 will cache the results of Patch_EncapsulateField on Assembly-CSharp version 1.2.4 and if either changes, a new set of results must be cached.
+    public static class HarmonyTargetCache
     {
-        [Serializable]
-        public class HarmonyTargetGroup
+        // Place reflective objects like MethodBase in here to speed up caching between expensive patches
+        internal static MemoryCache inMemoryCache = new(nameof(HarmonyTargetCache));
+
+        public static IEnumerable<MethodBase> GetCachedResultsOrFallback(string category, Assembly assembly, Func<Assembly, IEnumerable<MethodBase>> fallback)
         {
-            public Guid GroupKey;
-            public List<MethodBase> MethodBases;
-        }
-
-        public const string CacheFileExtension = "cache.json";
-
-        public static class AssemblyIds
-        {
-            public static HashSet<Guid> Running;
-
-            static AssemblyIds() // Lazy instantiation
+            if (!TryGetCachedResults(category, assembly, out var results))
             {
-                Running = LoadedModManager.RunningMods
-                    .SelectMany(modContentPack => modContentPack.assemblies.loadedAssemblies)
-                    .Select(assembly => assembly.ManifestModule.ModuleVersionId)
-                    .ToHashSet();
+                results = fallback(assembly);
+                SetCachedResults(category, assembly, results);
             }
+
+            return results;
         }
 
-        protected const string AcceleratorName = $"{nameof(HarmonyTargetCache)}_{nameof(MemoryCache)}";
-        protected static readonly MemoryCache Accelerator = new(AcceleratorName);
-
-        private static string GetMethodSignature(MethodBase methodBase)
+        public static bool HasCachedResults(string category, Assembly assembly)
         {
-            var parameters = methodBase.GetParameters().Select(p => p.ParameterType.FullName).Join();
-            var enclosing = methodBase.DeclaringType.FullName;
-            var name = methodBase.Name;
-            return $"{enclosing}.{name}({parameters})";
-        }
-
-        private string directory;
-        private bool isDisposed;
-
-        public HarmonyTargetCache(string directory)
-        {
-            this.Directory = directory;
-
-            if (Prefs.LogVerbose &&
-                System.IO.Directory.Exists(FullDirectoryPath) &&
-                System.IO.Directory.GetFiles(FullDirectoryPath) is string[] dirList &&
-                dirList.Length > 0)
+            if (string.IsNullOrWhiteSpace(category))
             {
-                Log.Message($"Existing caches found for {directory}");
+                throw new ArgumentException($"'{nameof(category)}' cannot be null or whitespace.", nameof(category));
             }
-        }
-
-        public string Directory
-        {
-            get => directory;
-            set
+            if (assembly is null)
             {
-                if (string.IsNullOrEmpty(value))
-                {
-                    throw new ArgumentException($"'{nameof(Directory)}' cannot be null or empty.", nameof(Directory));
-                }
-
-                directory = value;
+                throw new ArgumentNullException(nameof(assembly));
             }
+
+            var filename = GetCacheFileName(assembly);
+            var filepath = GetCacheFilePath(category, filename);
+            return File.Exists(filepath);
         }
 
-        public string FullDirectoryPath => Path.Combine(RimThreadedMod.ExtrasFolderPath, directory);
-
-        public void Initialize()
+        public static string GetCacheFilePath(string category, string filename)
         {
+            if (string.IsNullOrWhiteSpace(category))
+            {
+                throw new ArgumentException($"'{nameof(category)}' cannot be null or whitespace.", nameof(category));
+            }
+            if (string.IsNullOrWhiteSpace(filename))
+            {
+                throw new ArgumentException($"'{nameof(filename)}' cannot be null or whitespace.", nameof(filename));
+            }
 
+            return Path.Combine(RimThreadedMod.ExtrasFolderPath, category, filename);
         }
 
-        protected string GroupFilePath(Assembly assembly, out string filename)
+        public static string GetCacheFileName(Assembly assembly)
         {
-            filename = GroupFileName(assembly);
-            return Path.Combine(FullDirectoryPath, filename);
-        }
+            if (assembly is null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
 
-        protected string GroupFilePath(Type type, out string filename) => GroupFilePath(type.Assembly, out filename);
-
-        protected string GroupFilePath(MethodBase methodBase, out string filename) => GroupFilePath(methodBase.DeclaringType, out filename);
-
-        protected string GroupFileName(Assembly assembly)
-        {
             var name = assembly.GetName().Name;
             var version = assembly.ManifestModule.ModuleVersionId;
-            return $"{name}-{version}.{CacheFileExtension}";
+            return $"{name}-{version}.cache.json";
         }
 
-        protected string GroupFileName(Type type) => GroupFileName(type.Assembly);
-
-        protected string GroupFileName(MethodBase methodBase) => GroupFileName(methodBase.DeclaringType);
-
-        protected string GetItemKey(MethodBase methodBase)
+        public static IEnumerable<MethodBase> GetCachedResults(string category, Assembly assembly)
         {
-            return GetMethodSignature(methodBase);
-        }
-
-        protected Guid GetGroupKey(Assembly assembly)
-        {
-            return assembly.ManifestModule.ModuleVersionId;
-        }
-
-        protected Guid GetGroupKey(Type type) => GetGroupKey(type.Assembly);
-
-        protected Guid GetGroupKey(MethodBase methodBase) => GetGroupKey(methodBase.DeclaringType);
-
-        protected bool IsGroupExists(Assembly assembly, out string path, out string filename)
-        {
-            path = GroupFilePath(assembly, out filename);
-            return File.Exists(path);
-        }
-
-        protected bool IsGroupExists(Type type, out string path, out string filename) => IsGroupExists(type.Assembly, out path, out filename);
-
-        protected bool IsGroupExists(MethodBase methodBase, out string path, out string filename) => IsGroupExists(methodBase.DeclaringType, out path, out filename);
-
-        protected HarmonyTargetGroup LoadGroupFile(Assembly assembly, out string groupFilePath, out string groupFilename)
-        {
-            if (!IsGroupExists(assembly, out groupFilePath, out groupFilename))
+            if (string.IsNullOrWhiteSpace(category))
             {
-                throw new FileNotFoundException();
+                throw new ArgumentException($"'{nameof(category)}' cannot be null or whitespace.", nameof(category));
+            }
+            if (assembly is null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
             }
 
-            // TODO: consider streaming the file, as it may be large and inefficient to load all at once
-            // TODO: cache loaded group files
-            var rawText = File.ReadAllText(groupFilePath);
-            return JsonConvert.DeserializeObject<HarmonyTargetGroup>(rawText);
-        }
-
-        protected HarmonyTargetGroup LoadGroupFile(Type type, out string groupFilePath) => LoadGroupFile(type, out groupFilePath);
-
-        protected HarmonyTargetGroup LoadGroupFile(MethodBase methodBase, out string groupFilePath) => LoadGroupFile(methodBase, out groupFilePath);
-
-        protected void SaveGroupFile(Assembly assembly, IEnumerable<MethodBase> methodBases, out string groupFilePath)
-        {
-            var groupKey = GetGroupKey(assembly);
-            groupFilePath = GroupFilePath(assembly, out var groupFilename);
-            var filtered = methodBases.Where(methodBase => GetGroupKey(methodBase) == groupKey).ToList();
-            
-            var excluded = methodBases.Where(methodBase => GetGroupKey(methodBase) != groupKey).ToList();
-            if (excluded.Any())
+            var filename = GetCacheFileName(assembly);
+            var filepath = GetCacheFilePath(category, filename);
+            if (!File.Exists(filepath))
             {
-                Log.Warning($"Attempted to cache foreign methods with group: {assembly}");
+                return null;
             }
 
-            var groupStruct = new HarmonyTargetGroup()
+            var filetext = File.ReadAllText(filepath);
+            if (string.IsNullOrWhiteSpace(filetext))
             {
-                GroupKey = groupKey,
-                MethodBases = filtered
-            };
-            var groupText = JsonConvert.SerializeObject(groupStruct, Formatting.Indented);
-            File.WriteAllText(groupFilePath, groupText);
-        }
-
-        protected string GetAcceleratorGroupKey(Assembly assembly)
-        {
-            return GetGroupKey(assembly).ToString();
-        }
-
-        protected bool IsGroupAccelerated(Assembly assembly)
-        {
-            var key = GetAcceleratorGroupKey(assembly);
-            return Accelerator.Contains(key);
-        }
-
-        protected IEnumerable<string> GetAcceleratedItemKeysForGroup(Assembly assembly)
-        {
-            var key = GetAcceleratorGroupKey(assembly);
-            return Accelerator.Get(key) as List<string>;
-        }
-
-        protected IEnumerable<string> BuildItemKeys(IEnumerable<MethodBase> methodBases)
-        {
-            return from methodBase in methodBases
-                   where methodBase is not null
-                   select GetItemKey(methodBase);
-        }
-
-        protected IEnumerable<(string key, MethodBase value)> BuildItemPairs(IEnumerable<MethodBase> methodBases)
-        {
-            return from methodBase in methodBases
-                   where methodBase is not null
-                   select BuildItemPair(methodBase);
-        }
-
-        protected (string key, MethodBase value) BuildItemPair(MethodBase methodBase)
-        {
-            var itemKey = GetItemKey(methodBase);
-            return (itemKey, methodBase);
-        }
-
-        protected MethodBase GetAcceleratedItem(string itemKey)
-        {
-            return Accelerator.Get(itemKey) as MethodBase;
-        }
-
-        protected IEnumerable<MethodBase> GetAcceleratedGroup(Assembly assembly)
-        {
-            return from itemKey in GetAcceleratedItemKeysForGroup(assembly)
-                   where itemKey is not null
-                   select GetAcceleratedItem(itemKey) into methodBase
-                   where methodBase is not null
-                   select methodBase;
-        }
-
-        protected void SetAcceleratedGroup(Assembly assembly, IEnumerable<MethodBase> methodBases)
-        {
-            var key = GetAcceleratorGroupKey(assembly);
-            var itemKeys = BuildItemKeys(methodBases);
-            var itemPairs = BuildItemPairs(methodBases);
-
-            Accelerator.Set(key, itemKeys, null);
-            foreach (var (itemKey, value) in itemPairs)
-            {
-                Accelerator.Set(itemKey, value, null);
-            }
-        }
-
-        public IEnumerable<MethodBase> GetCachedMethods(Assembly assembly)
-        {
-            if (IsGroupAccelerated(assembly))
-            {
-                return GetAcceleratedGroup(assembly);
+                return null;
             }
 
-            var group = LoadGroupFile(assembly, out var groupFilePath, out var groupFilename);
-            return group?.MethodBases;
-        }
-
-        public IEnumerable<MethodBase> GetCachedMethodsOrFallback(Assembly assembly, Func<IEnumerable<MethodBase>> fallback)
-        {
-            if (GetCachedMethods(assembly) is not IEnumerable<MethodBase> cachedMethods)
+            var fileResults = JsonConvert.DeserializeObject<IEnumerable<MemberNotation>>(filetext);
+            if (fileResults is null)
             {
-                cachedMethods = fallback();
-                SetCachedMethods(assembly, cachedMethods);
+                return null;
+            }
+            if (fileResults.Count() == 0)
+            {
+                return Enumerable.Empty<MethodBase>();
             }
 
-            return cachedMethods;
+            var results = fileResults.Select(MemberNotation.ToAnyMethod);
+            return results;
         }
 
-        public void SetCachedMethods(Assembly assembly, IEnumerable<MethodBase> methodBases)
+        public static bool TryGetCachedResults(string category, Assembly assembly, out IEnumerable<MethodBase> results)
         {
-            SetAcceleratedGroup(assembly, methodBases);
-            SaveGroupFile(assembly, methodBases, out _);
-        }
-
-        protected virtual void Dispose(bool disposing)
-        {
-            if (!isDisposed)
+            if (string.IsNullOrWhiteSpace(category))
             {
-                if (disposing)
-                {
-                    // TODO: dispose managed state (managed objects)
-                }
-
-                // TODO: free unmanaged resources (unmanaged objects) and override finalizer
-                // TODO: set large fields to null
-                isDisposed = true;
+                throw new ArgumentException($"'{nameof(category)}' cannot be null or whitespace.", nameof(category));
             }
+            if (assembly is null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
+
+            results = GetCachedResults(category, assembly);
+            return results is not null && results.Count() > 0;
         }
 
-        ~HarmonyTargetCache()
+        public static void SetCachedResults(string category, Assembly assembly, IEnumerable<MethodBase> results)
         {
-            Dispose(disposing: false);
-        }
+            if (string.IsNullOrWhiteSpace(category))
+            {
+                throw new ArgumentException($"'{nameof(category)}' cannot be null or whitespace.", nameof(category));
+            }
+            if (assembly is null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
 
-        public void Dispose()
-        {
-            Dispose(disposing: true);
-            GC.SuppressFinalize(this);
+            var serializedResults = results.Select(MemberNotation.FromAnyMethod);
+
+            var filename = GetCacheFileName(assembly);
+            var filepath = GetCacheFilePath(category, filename);
+
+            var filetext = JsonConvert.SerializeObject(serializedResults, Formatting.Indented);
+            File.WriteAllText(filepath, filetext);
         }
     }
 }

@@ -92,7 +92,7 @@ namespace RimThreaded.Patches
             {
                 if (!lockTaken)
                 {
-                    Log.Warning($"Failed to acquire lock on {__instance}");
+                    RTLog.Warning($"Failed to acquire lock on {__instance}");
                 }
             }
         }
@@ -113,7 +113,7 @@ namespace RimThreaded.Patches
             }
             else
             {
-                Log.Warning($"Lock for {__instance} was unacquired before {typeof(Patch_InstanceLock)}");
+                RTLog.Warning($"Lock for {__instance} was unacquired before {typeof(Patch_InstanceLock)}");
             }
         }
 

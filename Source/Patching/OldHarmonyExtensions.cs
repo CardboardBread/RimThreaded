@@ -24,6 +24,31 @@ using RimThreaded.Patches.VerseProfilePatches;
 
 namespace RimThreaded.Patching
 {
+#pragma warning disable 649
+
+    [Serializable]
+    class Replacements
+    {
+        public List<ClassReplacement> ClassReplacements;
+    }
+
+    [Serializable]
+    class ClassReplacement
+    {
+        public string ClassName;
+        public bool IgnoreMissing;
+        public List<ThreadStaticDetail> ThreadStatics;
+    }
+
+    [Serializable]
+    class ThreadStaticDetail
+    {
+        public string FieldName;
+        public string PatchedClassName;
+        public bool SelfInitialized;
+    }
+
+#pragma warning restore 649
     public static class OldHarmonyExtensions
     {
         private static void AddAdditionalReplacements()
@@ -641,7 +666,7 @@ namespace RimThreaded.Patching
 
         public static void Prefix(Type original, Type patched, string methodName, Type[] origType = null, bool destructive = true, int priority = 0, string finalizer = null, string PatchMethod = null, bool NullPatchType = false)
         {
-            MethodInfo oMethod = Method(original, methodName, origType);
+            MethodInfo oMethod = AccessTools.Method(original, methodName, origType);
 
             Type[] patch_type = null;
             if (origType != null)
@@ -668,18 +693,18 @@ namespace RimThreaded.Patching
             {
                 patch_type = null;
             }
-            MethodInfo pMethod = Method(patched, methodName, patch_type);
+            MethodInfo pMethod = AccessTools.Method(patched, methodName, patch_type);
 
             if (PatchMethod != null)
             {
-                pMethod = Method(patched, PatchMethod, patch_type);
+                pMethod = AccessTools.Method(patched, PatchMethod, patch_type);
             }
 
             MethodInfo Finalizer;
             HarmonyMethod FinalizerH = null;
             if (finalizer != null)
             {
-                Finalizer = Method(patched, finalizer);
+                Finalizer = AccessTools.Method(patched, finalizer);
                 FinalizerH = new HarmonyMethod(Finalizer, priority);
             }
 

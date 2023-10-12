@@ -13,21 +13,18 @@ namespace RimThreaded.Utilities
     {
         private static ThreadLocal<bool> _currentThreadWorking = new(() => false);
 
-        private readonly TaskFactory _factory;
         private readonly object _lockObj = new();
         private readonly LinkedList<Task> _tasks = new();
         private int _delegatesRunning = 0;
         private bool _isDisposed = false;
 
-        public RimThreadedTaskScheduler(TaskFactory factory = null)
+        public RimThreadedTaskScheduler()
         {
             if (SystemInfo.processorCount < 1)
             {
                 var field = AccessTools.Field(typeof(SystemInfo), nameof(SystemInfo.processorCount));
                 throw new ArgumentOutOfRangeException(field.ToString());
             }
-
-            _factory = factory ?? new(this);
         }
 
         public override int MaximumConcurrencyLevel => RimThreaded.MaximumConcurrencyLevel;
@@ -61,7 +58,7 @@ namespace RimThreaded.Utilities
 
         protected override IEnumerable<Task> GetScheduledTasks()
         {
-            if (_isDisposed)
+            if (IsDisposed)
             {
                 throw new InvalidOperationException();
             }
@@ -186,8 +183,8 @@ namespace RimThreaded.Utilities
                 {
                     var first = multi.First();
 
-                    var rest = multi.Skip(1);
-                    foreach (Task extra in rest)
+                    var remaining = multi.Skip(1);
+                    foreach (Task extra in remaining)
                     {
                         QueueTask(extra);
                     }
@@ -206,7 +203,7 @@ namespace RimThreaded.Utilities
             }
             catch (Exception ex)
             {
-                Log.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} encountered error while executing task:\n{ex}");
+                RTLog.Error($"RT Worker {Thread.CurrentThread.ManagedThreadId} encountered error while executing task:\n{ex}");
             }
             finally
             {
@@ -250,6 +247,7 @@ namespace RimThreaded.Utilities
                 if (disposing)
                 {
                     // TODO: dispose managed state (managed objects)
+                    _currentThreadWorking.Dispose();
                 }
 
                 // TODO: free unmanaged resources (unmanaged objects) and override finalizer

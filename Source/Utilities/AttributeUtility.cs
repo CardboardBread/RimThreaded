@@ -129,7 +129,7 @@ namespace RimThreaded.Utilities
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Encountered error while invoking {typeof(A)} usage method: {ex}");
+                    RTLog.Error($"Encountered error while invoking {typeof(A)} usage method: {ex}");
                 }
             }
         }

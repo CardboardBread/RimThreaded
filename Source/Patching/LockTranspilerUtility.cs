@@ -164,7 +164,7 @@ namespace RimThreaded.Patching
         }
 
         public static MethodInfo InstanceLockWrapperMethod = MethodGroups.AsInfo(WrapMethodInInstanceLock);
-        public static HarmonyMethod InstanceLockWrapperTranspiler = MethodGroups.AsHarmony(WrapMethodInInstanceLock);
+        public static HarmonyMethod InstanceLockWrapperTranspiler = MethodGroups.ToHarmony(WrapMethodInInstanceLock);
 
         [HarmonyTranspiler]
         public static IEnumerable<CodeInstruction> WrapMethodInInstanceLock(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator, MethodBase original)

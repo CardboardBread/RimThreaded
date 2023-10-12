@@ -1,15 +1,8 @@
-﻿using HarmonyLib;
-using RimThreaded.Patching;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+﻿using RimThreaded.Patching;
+using RimThreaded.Utilities;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Reflection.Emit;
-using System.Runtime.Caching;
-using Verse;
-using static HarmonyLib.Code;
 
 namespace RimThreaded.Patches
 {
@@ -18,104 +11,30 @@ namespace RimThreaded.Patches
     [HarmonyPatch]
     public static class Patch_RebindMember
     {
-        public record struct CachedAssembly(string ModuleVersionId, List<MethodBase> Methods);
-
-        internal const string CacheFolderName = $"Cache_{nameof(Patch_RebindMember)}";
-        internal static string CacheFolderPath = Path.Combine(RimThreadedMod.ExtrasFolderPath, CacheFolderName);
-
-        private static HashSet<RebindFieldPatchAttribute> rebindFields = new();
-        private static HashSet<FieldInfo> targetFields = new();
-        private static Dictionary<FieldInfo, RebindFieldPatchAttribute> rebindFieldsByField = new();
-        private static Dictionary<FieldInfo, FieldBuilder> newFields = new();
-        private static HashSet<FieldInfo> boxedFields = new();
-
-        private static HashSet<RebindMethodPatchAttribute> rebindMethods = new();
-        private static Dictionary<MethodInfo, RebindMethodPatchAttribute> rebindMethodsByMethod = new();
-
-        private static ObjectCache nativeCache = new MemoryCache(CacheFolderName);
-        private static Dictionary<string, System.WeakReference<List<MethodBase>>> methodsByAssembly = new();
-
-
-
-        // Target every single method, constructor, getter and setter.
-        [HarmonyTargetMethods]
-        public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
-        {
-            foreach (var assembly in RimThreaded.GameAssemblies())
-            {
-
-            }
-
-            foreach (var type in from assembly in GetOrFallback(typeof(Patch_RebindMember).FullName, () => AccessTools.AllAssemblies())
-                                 from type in GetOrFallback(assembly.ManifestModule.ModuleVersionId.ToString(), () => AccessTools.GetTypesFromAssembly(assembly))
-                                 select type)
-            {
-                foreach (var method in from method in AccessTools.GetDeclaredMethods(type)
-                                       where ScanMethod(method)
-                                       select method)
-                {
-                    yield return method;
-                }
-
-                foreach (var constructor in AccessTools.GetDeclaredConstructors(type))
-                {
-                    yield return constructor;
-                }
-
-                foreach (var property in AccessTools.GetDeclaredProperties(type))
-                {
-                    if (property.GetMethod != null)
-                    {
-                        yield return property.GetMethod;
-                    }
-
-                    if (property.SetMethod != null)
-                    {
-                        yield return property.SetMethod;
-                    }
-                }
-
-            }
-
-            static bool ScanMethod(MethodBase method)
-            {
-                var body = PatchProcessor.ReadMethodBody(method);
-                return body.Any(IsInstructionTargeted);
-            }
-
-            static bool IsInstructionTargeted(KeyValuePair<OpCode, object> pair)
-            {
-                var (opcode, operand) = pair;
-                if (operand is FieldInfo field && targetFields.Contains(field))
-                {
-                    if (opcode == OpCodes.Ldflda || opcode == OpCodes.Ldsflda)
-                    {
-                        Log.ErrorOnce($"The address of a field marked for rebinding is used, rebinding cannot be completed for: {field}", field.GetHashCode());
-                    }
-                    return true;
-                }
-                else
-                {
-                    return false;
-                }
-            }
-        }
-
-        private static T GetOrFallback<T>(string key, Func<T> fallback) where T : class
-        {
-            if (nativeCache.Get(key) is not T value)
-            {
-                value = fallback();
-                nativeCache.Set(key, value, DateTimeOffset.Now.AddMinutes(10));
-            }
-            return value;
-        }
+        private static HashSet<RebindFieldPatchAttribute> rebindFields;
+        private static HashSet<FieldInfo> targetFields;
+        private static Dictionary<FieldInfo, RebindFieldPatchAttribute> rebindFieldsByField;
+        private static HashSet<RebindMethodPatchAttribute> rebindMethods;
+        private static Dictionary<MethodInfo, RebindMethodPatchAttribute> rebindMethodsByMethod;
 
         [HarmonyPrepare]
-        public static bool Prepare(Harmony harmony, MethodBase original)
+        public static bool Prepare(Harmony harmony, MethodBase original = null)
         {
+            if (harmony is null)
+            {
+                throw new ArgumentNullException(nameof(harmony));
+            }
+
             if (original == null)
             {
+                RTLog.HarmonyDebugMessage($"Starting {nameof(Patch_RebindMember)}");
+
+                rebindFields = new();
+                targetFields = new();
+                rebindFieldsByField = new();
+                rebindMethods = new();
+                rebindMethodsByMethod = new();
+
                 foreach (var rebind in RimThreadedMod.Instance.GetLocalAttributesByType<RebindFieldPatchAttribute>())
                 {
                     rebindFields.Add(rebind);
@@ -133,8 +52,42 @@ namespace RimThreaded.Patches
             }
             else
             {
-                SysDebug.WriteLineIf(Harmony.DEBUG, $"Rebinding members in {original}");
+                RTLog.HarmonyDebugMessage($"Rebinding members in {original}");
                 return true;
+            }
+        }
+
+        // Target every method, constructor, getter and setter that uses any targeted member.
+        [HarmonyTargetMethods]
+        public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
+        {
+            if (harmony is null)
+            {
+                throw new ArgumentNullException(nameof(harmony));
+            }
+
+            foreach (var target in from assembly in RimThreaded.GameAssemblies().AsParallel()
+                                   from methodBase in assembly.AllMethodBases()
+                                   where FindAllTargetedInstructions(methodBase).Count() > 0
+                                   select methodBase)
+            {
+                yield return target;
+            }
+        }
+
+        private static IEnumerable<int> FindAllTargetedInstructions(MethodBase method, HarmonyMethodBody methodBody = null)
+        {
+            methodBody ??= RimThreadedHarmony.ReadMethodBody(method);
+            foreach (var ((opcode, operand), index) in methodBody.WithIndex())
+            {
+                if (operand is FieldInfo field && targetFields.Contains(field))
+                {
+                    if (opcode == OpCodes.Ldflda || opcode == OpCodes.Ldsflda)
+                    {
+                        RTLog.Error($"{nameof(Patch_RebindMember)} detected addressing of {field} at: {method.GetTraceSignature()}:{index}");
+                    }
+                    yield return index;
+                }
             }
         }
 
@@ -146,13 +99,26 @@ namespace RimThreaded.Patches
                                                            ILGenerator iLGenerator,
                                                            MethodBase original)
         {
+            if (instructions is null)
+            {
+                throw new ArgumentNullException(nameof(instructions));
+            }
+            if (iLGenerator is null)
+            {
+                throw new ArgumentNullException(nameof(iLGenerator));
+            }
+            if (original is null)
+            {
+                throw new ArgumentNullException(nameof(original));
+            }
+
             foreach (var instruction in instructions)
             {
                 if (instruction.operand is FieldInfo field &&
                     rebindFieldsByField.TryGetValue(field, out var fRebind) &&
                     fRebind.IsPatchTarget(instruction))
                 {
-                    SysDebug.WriteLine("TBD"); // writeline replacing instruction with rebind
+                    // TODO: log replacing instruction with rebind
                     foreach (var insert in fRebind.ApplyPatch(instruction))
                     {
                         yield return insert;
@@ -177,13 +143,23 @@ namespace RimThreaded.Patches
         [HarmonyCleanup]
         public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
         {
+            if (harmony is null)
+            {
+                throw new ArgumentNullException(nameof(harmony));
+            }
+
             if (original == null && !Prefs.DevMode)
             {
                 rebindFields.Clear();
+                rebindFields = null;
+                targetFields.Clear();
+                targetFields = null;
                 rebindFieldsByField.Clear();
-                newFields.Clear();
+                rebindFieldsByField = null;
                 rebindMethods.Clear();
+                rebindMethods = null;
                 rebindMethodsByMethod.Clear();
+                rebindMethodsByMethod = null;
             }
         }
     }

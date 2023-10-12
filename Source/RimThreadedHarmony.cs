@@ -1,8 +1,10 @@
-﻿using RimThreaded.Patching;
+﻿global using HarmonyMethodBody = System.Collections.Generic.IEnumerable<System.Collections.Generic.KeyValuePair<System.Reflection.Emit.OpCode, object>>;
+using RimThreaded.Patches;
+using RimThreaded.Patching;
 using RimThreaded.Utilities;
 using System.Linq;
 using System.Reflection.Emit;
-using System.Runtime.Caching;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace RimThreaded
@@ -11,10 +13,10 @@ namespace RimThreaded
     // Class instance is a wrapper for a Harmony instance, allowing patching only specific groups (non-destructive vs destructive).
     public class RimThreadedHarmony : Harmony
 	{
-        /// <summary>Tuple-like type for modelling potential conflicts between RimThreaded Harmony patches and foreign Harmony patches</summary>
-        /// <param name="Original">The method/constructor/getter/setter that a Harmony patch conflict was detected on</param>
-        /// <param name="Local">The RimThreaded Harmony patch that has the potential to conflict with foreign Harmony patches</param>
-        /// <param name="Foreigns">A collection of foreign Harmony patches that may conflict with a RimThreaded Harmony patch</param>
+        /// <summary>Tuple-like type for modelling potential conflicts between RimThreaded Harmony patches and foreign Harmony patches.</summary>
+        /// <param name="Original">The method/constructor/getter/setter that a Harmony patch conflict was detected on.</param>
+        /// <param name="Local">The RimThreaded Harmony patch that has the potential to conflict with foreign Harmony patches.</param>
+        /// <param name="Foreigns">A collection of foreign Harmony patches that may conflict with a RimThreaded Harmony patch.</param>
         public record struct PatchConflicts(MethodBase Original, Patch Local, IEnumerable<Patch> Foreigns);
 
         public const string DynamicAssemblyName = "RimThreadedDynamic";
@@ -38,7 +40,7 @@ namespace RimThreaded
 
         private static List<PatchConflicts> conflictingPatches;
         private static string patchConflictsText;
-        private static readonly MemoryCache methodBodyCache = new($"{nameof(RimThreadedHarmony)}_{nameof(ReadMethodBody)}");
+        private static readonly ConditionalWeakTable<MethodBase, HarmonyMethodBody> methodBodyCache = new();
 
         static RimThreadedHarmony()
 		{
@@ -47,25 +49,12 @@ namespace RimThreaded
             _DynamicModule = _DynamicAssembly.DefineDynamicModule(DynamicAssemblyName, $"{DynamicAssemblyName}.dll");
         }
 
-        // Caching wrapper for PatchProcessor.ReadMethodBody()
-        internal static IEnumerable<KeyValuePair<OpCode, object>> ReadMethodBody(MethodBase method)
+        /// <summary>
+        /// Caching wrapper for <see cref="PatchProcessor.ReadMethodBody()"/>.
+        /// </summary>
+        public static HarmonyMethodBody ReadMethodBody(MethodBase method)
         {
-            var key = method.FullDescription();
-            if (methodBodyCache.Get(key) is IEnumerable<KeyValuePair<OpCode, object>> memoryResult)
-            {
-                return memoryResult;
-            }
-            else
-            {
-                var timeout = RimThreadedSettings.Instance?.TimeoutMilliseconds ?? RimThreadedSettings.DefaultTimeoutMilliseconds;
-                var policy = new CacheItemPolicy()
-                {
-                    SlidingExpiration = TimeSpan.FromMilliseconds(timeout),
-                };
-                var body = PatchProcessor.ReadMethodBody(method);
-                methodBodyCache.Set(key, body, policy);
-                return body;
-            }
+            return methodBodyCache.GetValue(method, PatchProcessor.ReadMethodBody);
         }
 
         internal static bool IsTypeReplaced(Type type)
@@ -96,7 +85,7 @@ namespace RimThreaded
             return builder;
         }
 
-        internal static IEnumerable<PatchConflicts> GetConflictingPatches() => Harmony.GetAllPatchedMethods().SelectMany(GetConflictingPatches);
+        internal static IEnumerable<PatchConflicts> GetAllConflictingPatches() => Harmony.GetAllPatchedMethods().SelectMany(GetConflictingPatches);
 
         // TODO: find all patched methods that have at least one patch from RimThreaded which is not in the non-destructive
         //       category and is not the only patch on a given method.
@@ -104,7 +93,6 @@ namespace RimThreaded
         //       it has a higher priority.
         private static IEnumerable<PatchConflicts> GetConflictingPatches(MethodBase original)
         {
-            // Preconditions. Don't use Patches.Owners since that performs a bunch of unions and conversions.
             if (Harmony.GetPatchInfo(original) is not HarmonyLib.Patches patches || !patches.Owners.Any(o => o != RimThreadedHarmony.Instance.Id))
             {
                 yield break;
@@ -112,8 +100,11 @@ namespace RimThreaded
 
             // Ensure a local prefix has a foreign prefix it could potentially conflict with.
             // TODO: this but for postfixes, transpilers and finalizers.
-            if (patches.Prefixes.Count() < 2 && patches.Postfixes.Count() < 1 && patches.Transpilers.Count() < 1 &&
-                patches.Prefixes.Any(IsLocalPatch) && !patches.Prefixes.Any(IsForeignPatch))
+            if (patches.Prefixes.Count() < 2 &&
+                patches.Postfixes.Count() < 1 &&
+                patches.Transpilers.Count() < 1 &&
+                patches.Prefixes.Any(IsLocalPatch) &&
+                !patches.Prefixes.Any(IsForeignPatch))
             {
                 yield break;
             }
@@ -169,7 +160,7 @@ namespace RimThreaded
         internal static string GetPatchConflictsText(IEnumerable<PatchConflicts> conflicts)
         {
             var builder = new StringBuilder();
-            builder.AppendLine($"Potential RimThreaded mod conflicts: {conflicts.Count()}");
+            builder.AppendLine($"Discovered {conflicts.Count()} potential Harmony patch conflicts:");
             foreach (var patch in conflicts)
             {
                 builder.AppendLine($"\t---Harmony Patched Method: `{patch.Original.FullDescription()}`---");
@@ -182,19 +173,24 @@ namespace RimThreaded
             return builder.ToString();
         }
 
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
-        internal static void DiscoverPatchConflicts()
+        /// <summary>
+        /// Search for and report conflicts between Harmony patches in this mod and Harmony patches in other mods.
+        /// </summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
+        public static void DiscoverPatchConflicts()
         {
-            Log.Message("[RimThreaded] Discovering potential Harmony patch conflicts...");
-            conflictingPatches ??= GetConflictingPatches().ToList();
-            Log.Message($"[RimThreaded] Potential Harmony patch conflicts: {conflictingPatches.Count}");
-
+            RTLog.Message("Discovering potential Harmony patch conflicts...");
+            conflictingPatches ??= GetAllConflictingPatches().ToList();
             patchConflictsText ??= GetPatchConflictsText(conflictingPatches);
             if (Prefs.LogVerbose && conflictingPatches.Count > 0)
             {
-                Log.Warning($"[RimThreaded] {patchConflictsText}");
+                RTLog.Warning(patchConflictsText);
             }
+        }
+
+        internal static void ExportTranspiledMethods()
+        {
+
         }
 
         private readonly HashSet<string> enabledCategories = new();
@@ -223,7 +219,7 @@ namespace RimThreaded
                 }
                 catch (Exception ex)
                 {
-                    Log.Error($"Error in {attribute} locating: {ex}");
+                    RTLog.Error($"Error in {attribute} locating: {ex}");
                 }
             }
 
@@ -246,7 +242,8 @@ namespace RimThreaded
         internal void PatchLater(MethodBase original, HarmonyMethod prefix = null, HarmonyMethod postfix = null, HarmonyMethod transpiler = null, HarmonyMethod finalizer = null, string category = null)
         {
             category ??= DefaultCategory;
-            manualPatchesByGroup.NewValueIfAbsent(category).Add(h => h.Patch(original, prefix, postfix, transpiler, finalizer));
+            void laterPatch(Harmony h) => h.Patch(original, prefix, postfix, transpiler, finalizer);
+            manualPatchesByGroup.NewValueIfAbsent(category).Add(laterPatch);
         }
     }
 }

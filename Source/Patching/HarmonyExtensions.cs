@@ -10,12 +10,18 @@ namespace RimThreaded.Patching
 {
     public static class HarmonyExtensions
     {
+        /// <summary>
+        /// Determines if a member posesses the HarmonyPatchAll attribute, which may be inherited from the member's declaring type.
+        /// </summary>
         public static bool HasHarmonyPatchAll(this MemberInfo member)
         {
             return member.HasAttribute<HarmonyPatchAll>()
                 || member.DeclaringType.HasAttribute<HarmonyPatchAll>();
         }
 
+        /// <summary>
+        /// Gets the Harmony Patch Category for a Harmony patch declared on this member, which may be inherited from the member's declaring type.
+        /// </summary>
         public static string HarmonyPatchCategory(this MemberInfo member)
         {
             return member.GetCustomAttribute<PatchCategoryAttribute>(inherit: true)?.category
@@ -23,6 +29,9 @@ namespace RimThreaded.Patching
                 ?? RimThreadedHarmony.DefaultCategory;
         }
 
+        /// <summary>
+        /// Gets the Harmony Declaring Type for a Harmony patch declared on this member, this may be inherited from the member's declaring type.
+        /// </summary>
         public static Type HarmonyDeclaringType(this MemberInfo member)
         {
             return HarmonyMergedValue(member, hm => hm.declaringType)
@@ -30,6 +39,9 @@ namespace RimThreaded.Patching
                 ?? null;
         }
 
+        /// <summary>
+        /// Gets the name of the method(s) targeted by a Harmony patch declared on this member, this may be inherited from the member's declaring type.
+        /// </summary>
         public static string HarmonyMethodName(this MemberInfo member)
         {
             return HarmonyMergedValue(member, hm => hm.methodName)
@@ -37,6 +49,9 @@ namespace RimThreaded.Patching
                 ?? null;
         }
 
+        /// <summary>
+        /// Gets the Harmony-specific category for the method targeted by a Harmony patch declared on this member, this may be inherited from the member's declaring type.
+        /// </summary>
         public static MethodType? HarmonyMethodType(this MemberInfo member)
         {
             return HarmonyMergedValue(member, hm => hm.methodType)
@@ -44,6 +59,9 @@ namespace RimThreaded.Patching
                 ?? null;
         }
 
+        /// <summary>
+        /// Gets the Harmony-specific variation in the argument typing for the method targeted by a Harmony patch declared on this member, this may be inherited from the member's declaring type.
+        /// </summary>
         public static Type[] HarmonyArgumentTypes(this MemberInfo member)
         {
             return HarmonyMergedValue(member, hm => hm.argumentTypes)
@@ -51,6 +69,9 @@ namespace RimThreaded.Patching
                 ?? null;
         }
 
+        /// <summary>
+        /// Gets the priority of the Harmony patch declared on this member, this may be inherited from the member's declaring type.
+        /// </summary>
         public static int? HarmonyPriority(this MemberInfo member)
         {
             static int? getter(HarmonyMethod hm) => hm.priority >= 0 ? hm.priority : null;
@@ -74,56 +95,5 @@ namespace RimThreaded.Patching
                 .Select(a => getter.Invoke(a.info))
                 .FirstOrDefault(res => res != null);
         }
-
-        public static MethodInfo ReversePatch(this (MethodBase, HarmonyMethod, MethodInfo) args)
-        {
-            var (original, standin, transpiler) = args;
-            return Harmony.ReversePatch(original, standin, transpiler);
-        }
-
-        public static IEnumerable<MethodInfo> ReversePatch(this IEnumerable<(MethodBase, HarmonyMethod, MethodInfo)> argList)
-        {
-            foreach (var args in argList)
-            {
-                yield return args.ReversePatch();
-            }
-        }
-
-        public static MethodInfo ReversePatch(this ReplacePatchSourceAttribute.Usage dele)
-        {
-            return dele.Invoke().ReversePatch();
-        }
-
-        public static IEnumerable<MethodInfo> ReversePatch(this ReplacePatchesSourceAttribute.Usage multiDele)
-        {
-            return multiDele.Invoke().ReversePatch();
-        }
     }
-
-#pragma warning disable 649
-
-    [Serializable]
-    class Replacements
-    {
-        public List<ClassReplacement> ClassReplacements;
-    }
-
-    [Serializable]
-    class ClassReplacement
-    {
-        public string ClassName;
-        public bool IgnoreMissing;
-        public List<ThreadStaticDetail> ThreadStatics;
-    }
-
-    [Serializable]
-    class ThreadStaticDetail
-    {
-        public string FieldName;
-        public string PatchedClassName;
-        public bool SelfInitialized;
-    }
-
-#pragma warning restore 649
-
 }
