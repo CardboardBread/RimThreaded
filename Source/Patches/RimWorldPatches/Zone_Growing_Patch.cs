@@ -2,25 +2,24 @@
 using System;
 using Verse;
 
-namespace RimThreaded.Patches.RimWorldPatches
-{
-    class Zone_Growing_Patch
-    {
-        internal static void RunNonDestructivePatches()
-        {
-            Type original = typeof(Zone_Growing);
-            Type patched = typeof(Zone_Growing_Patch);
-            RimThreadedHarmony.Postfix(original, patched, nameof(SetPlantDefToGrow));
-        }
+namespace RimThreaded.Patches.RimWorldPatches;
 
-        public static void SetPlantDefToGrow(Zone_Growing __instance, ThingDef plantDef)
+class Zone_Growing_Patch
+{
+    internal static void RunNonDestructivePatches()
+    {
+        Type original = typeof(Zone_Growing);
+        Type patched = typeof(Zone_Growing_Patch);
+        RimThreadedHarmony.Postfix(original, patched, nameof(SetPlantDefToGrow));
+    }
+
+    public static void SetPlantDefToGrow(Zone_Growing __instance, ThingDef plantDef)
+    {
+        if (Current.ProgramState == ProgramState.Playing)
         {
-            if (Current.ProgramState == ProgramState.Playing)
+            foreach (IntVec3 c in __instance.cells)
             {
-                foreach (IntVec3 c in __instance.cells)
-                {
-                    JumboCell.ReregisterObject(__instance.Map, c, RimThreaded.plantSowing_Cache);
-                }
+                JumboCell.ReregisterObject(__instance.Map, c, RimThreaded.plantSowing_Cache);
             }
         }
     }

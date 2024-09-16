@@ -4,35 +4,34 @@ using System.Collections.Generic;
 using System.Linq;
 using Verse;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+class GenSpawn_Patch
 {
-    class GenSpawn_Patch
+    private static readonly Type Original = typeof(GenSpawn);
+    private static readonly Type Patched = typeof(GenSpawn_Patch);
+
+    public static void RunDestructivePatches()
     {
-        private static readonly Type Original = typeof(GenSpawn);
-        private static readonly Type Patched = typeof(GenSpawn_Patch);
+        RimThreadedHarmony.Prefix(Original, Patched, "WipeExistingThings");
+    }
 
-        public static void RunDestructivePatches()
+    public static bool WipeExistingThings(IntVec3 thingPos, Rot4 thingRot, BuildableDef thingDef, Map map, DestroyMode mode)
+    {
+        foreach (IntVec3 item in GenAdj.CellsOccupiedBy(thingPos, thingRot, thingDef.Size))
         {
-            RimThreadedHarmony.Prefix(Original, Patched, "WipeExistingThings");
-        }
-
-        public static bool WipeExistingThings(IntVec3 thingPos, Rot4 thingRot, BuildableDef thingDef, Map map, DestroyMode mode)
-        {
-            foreach (IntVec3 item in GenAdj.CellsOccupiedBy(thingPos, thingRot, thingDef.Size))
+            List<Thing> list = map.thingGrid.ThingsAt(item).ToList();
+            for (int index = 0; index < list.Count; index++)
             {
-                List<Thing> list = map.thingGrid.ThingsAt(item).ToList();
-                for (int index = 0; index < list.Count; index++)
+                Thing item2 = list[index];
+                if (item2 == null) continue;
+                if (GenSpawn.SpawningWipes(thingDef, item2.def))
                 {
-                    Thing item2 = list[index];
-                    if (item2 == null) continue;
-                    if (GenSpawn.SpawningWipes(thingDef, item2.def))
-                    {
-                        item2.Destroy(mode);
-                    }
+                    item2.Destroy(mode);
                 }
             }
-
-            return false;
         }
+
+        return false;
     }
 }

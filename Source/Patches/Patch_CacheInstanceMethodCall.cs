@@ -1,93 +1,147 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Caching;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using HarmonyLib;
+using RimThreaded.Patching;
+using Verse;
 
-namespace RimThreaded.Patches
+namespace RimThreaded.Patches;
+
+[HarmonyPatch]
+public static class Patch_CacheInstanceMethodCall
 {
-    public static class Patch_CacheInstanceMethodCall
+    private static readonly MemoryCache ResultCache = new(nameof(Patch_CacheInstanceMethodCall));
+
+    private static readonly CacheItemPolicy ItemPolicy = new()
     {
-        internal static MemoryCache cache = new(nameof(Patch_CacheStaticMethodCall));
-        internal static ConditionalWeakTable<object, string> cacheNames = new();
+        UpdateCallback = CacheEntryUpdateCallback
+    };
 
-        [HarmonyPrepare]
-        public static void Prepare(Harmony harmony, MethodBase original = null)
+    private static readonly Dictionary<MethodBase, int> MethodEvictions = new();
+    private static readonly Dictionary<int, int> EntryCreationTicks = new();
+
+    private static readonly Dictionary<int, (MethodBase method, int creation)> Entries = new();
+    private static readonly ConditionalWeakTable<object, HashSet<int>> InstanceMapping = new();
+
+    private static void CacheEntryUpdateCallback(CacheEntryUpdateArguments arguments)
+    {
+    }
+
+    [HarmonyPrepare]
+    public static void Prepare(Harmony harmony, MethodBase original = null)
+    {
+        if (original is null)
         {
-            if (original == null)
-            {
+            ItemPolicy.SlidingExpiration = TimeSpan.FromMilliseconds(RimThreadedSettings.Instance.TimeoutMilliseconds);
+        }
 
+        if (original is not null)
+        {
+            if (MethodEvictions.ContainsKey(original))
+            {
+                throw new ArgumentException($"Method {original} is already handled", nameof(original));
             }
 
-            if (original != null)
+            if (original.IsStatic)
             {
-
+                throw new ArgumentException($"Cannot cache results from static method {original}",
+                    nameof(original));
             }
-        }
-
-        // Every instance method in the game that returns an object or something that can be cast to an object.
-        [HarmonyTargetMethods]
-        public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
-        {
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from method in type.GetMethods(AccessTools.allDeclared)
-                                   where !method.IsStatic
-                                   where method.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(method.ReturnType)
-                                   select method)
+            
+            if (original is MethodInfo method)
             {
-                yield return target;
-            }
+                if (method.ReturnType == typeof(void))
+                {
+                    throw new ArgumentException($"Cannot cache results of void returning method {method}", nameof(method));
+                }
 
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from property in type.GetProperties(AccessTools.allDeclared)
-                                   where property.GetMethod != null
-                                   select property.GetMethod into getter
-                                   where !getter.IsStatic
-                                   where getter.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(getter.ReturnType)
-                                   select getter)
-            {
-                yield return target;
+                if (typeof(object).IsAssignableFrom(method.ReturnType) is false)
+                {
+                    throw new ArgumentException($"Cannot cache results of method {method} returning a non-reference type {method.ReturnType}", nameof(method));
+                }
             }
 
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from property in type.GetProperties(AccessTools.allDeclared)
-                                   where property.SetMethod != null
-                                   select property.SetMethod into setter
-                                   where !setter.IsStatic
-                                   where setter.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(setter.ReturnType)
-                                   select setter)
+            // TODO: if this ever changes, make sure the value is non-zero and positive
+            MethodEvictions[original] = 1;
+        }
+    }
+
+    [HarmonyTargetMethods]
+    public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
+    {
+        // TODO: Only target methods that could benefit from caching.
+        // TODO: Declare a list of methods to be targeted, possibly as MemberNotation 
+        throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Get cached result and cancel original method, or do nothing and let it run.
+    /// </summary>
+    [HarmonyPrefix]
+    public static bool Prefix(object __instance, ref object __result, object[] __args, MethodBase __originalMethod)
+    {
+        var identity = MethodCallCacheUtility.GetInstanceCallHash(__originalMethod, __instance, __args);
+
+        if (ResultCache.Get(identity.ToString()) is { } cacheValue)
+        {
+            __result = cacheValue;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Cache the result if it was generated by the original method.
+    /// </summary>
+    [HarmonyPostfix]
+    public static void Postfix(object __instance, ref object __result, object[] __args, MethodBase __originalMethod,
+        bool __runOriginal)
+    {
+        var identity = MethodCallCacheUtility.GetInstanceCallHash(__originalMethod, __instance, __args);
+        var currentTick = Find.TickManager.TicksGame;
+
+        if (__runOriginal) // Save a full execution in the cache
+        {
+            ResultCache.Set(identity.ToString(), __result, ItemPolicy);
+            EntryCreationTicks[identity] = currentTick;
+        }
+        else // Check if the entry needs to be evicted
+        {
+            var eviction = MethodEvictions[__originalMethod];
+            var creation = EntryCreationTicks[identity];
+
+            if (creation + eviction <= currentTick)
             {
-                yield return target;
+                _ = ResultCache.Remove(identity.ToString());
+                _ = EntryCreationTicks.Remove(identity);
             }
         }
+    }
 
-        [HarmonyPrefix]
-        public static bool Prefix(object __instance, ref object __result, object[] __args, MethodBase __originalMethod)
+    /// <summary>
+    /// Observe exceptions and clear caches to prevent potential causes.
+    /// </summary>
+    [HarmonyFinalizer]
+    public static void Finalizer(Exception __exception, object __instance, ref object __result, object[] __args,
+        MethodBase __originalMethod, bool __runOriginal)
+    {
+        if (__exception is not null) // Evict the cache entry since it potentially caused an exception
         {
-            return true;
+            var identity = MethodCallCacheUtility.GetInstanceCallHash(__originalMethod, __instance, __args);
+
+            _ = ResultCache.Remove(identity.ToString());
+            _ = EntryCreationTicks.Remove(identity);
         }
+    }
 
-        [HarmonyPostfix]
-        public static void Postfix(object __instance, ref object __result, object[] __args, MethodBase __originalMethod, bool __runOriginal)
-        {
-
-        }
-
-        [HarmonyFinalizer]
-        public static void Finalizer(Exception __exception, object __instance, object[] __args, MethodBase __originalMethod)
-        {
-
-        }
-
-        [HarmonyCleanup]
-        public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
-        {
-
-        }
+    [HarmonyCleanup]
+    public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
+    {
     }
 }

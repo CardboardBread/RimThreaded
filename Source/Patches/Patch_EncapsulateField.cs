@@ -1,142 +1,137 @@
-﻿using RimThreaded.Patching;
-using RimThreaded.Utilities;
+﻿using System;
+using System.Collections.Generic;
+using RimThreaded.Patching;
 using System.Linq;
+using System.Reflection;
 using System.Reflection.Emit;
+using HarmonyLib;
+using RimThreaded.Utilities;
+using UnityEngine.Assertions;
+using Verse;
 
-namespace RimThreaded.Patches
+namespace RimThreaded.Patches;
+
+// Executing field-to-method conversion in a harmony patch class.
+// TODO: track all member replacements that add the constraint of no address usage, highlight possible conflicts in other mods' patches.
+[HarmonyPatch, PatchCategory(RimThreadedHarmony.DestructiveCategory)]
+public static class Patch_EncapsulateField
 {
-    // Executing field-to-method conversion in a harmony patch class.
-    // TODO: track all member replacements that add the constraint of no address usage, highlight possible conflicts in other mods' patches.
-    [PatchCategory(RimThreadedHarmony.DestructiveCategory)]
-    [HarmonyPatch]
-    public static class Patch_EncapsulateField
+    static Patch_EncapsulateField()
     {
-        private static HashSet<EncapsulateFieldPatchAttribute> attributes;
-        private static HashSet<FieldInfo> targetFields;
-        private static Dictionary<FieldInfo, EncapsulateFieldPatchAttribute> attributesByField;
+        RimThreadedMod.GameInstructionScanningEvent += ScanGameInstructions;
+        RimThreadedMod.DiscoverLocalAttributeEvent += FindTargetAttribute;
+    }
 
-        [HarmonyPrepare]
-        public static bool Prepare(Harmony harmony, MethodBase original = null)
+    private static void FindTargetAttribute(object sender, DiscoverAttributeEventArgs eventArgs)
+    {
+        // Grab all the encapsulate patches in this mod
+        foreach (var patchAttribute in eventArgs.Attributes.OfType<EncapsulateFieldPatchAttribute>())
         {
-            if (harmony is null)
+            _attributes.Add(patchAttribute);
+            _targetFields.Add(patchAttribute.Target);
+            _attributesByField.NewValueIfAbsent(patchAttribute.Target).Add(patchAttribute);
+        }
+    }
+
+    private static void ScanGameInstructions(object sender, InstructionScanningEventArgs eventArgs)
+    {
+        var isTargeted = false;
+        foreach (var ((opcode, operand), index) in eventArgs.MethodBody.WithIndex())
+        {
+            if (operand is FieldInfo field && _targetFields.Contains(field))
             {
-                throw new ArgumentNullException(nameof(harmony));
-            }
-
-            if (original == null)
-            {
-                RTLog.HarmonyDebugMessage($"Starting {nameof(Patch_EncapsulateField)}");
-
-                attributes = new();
-                targetFields = new();
-                attributesByField = new();
-
-                // Grab all the encapsulate patches in this mod
-                foreach (var attribute in RimThreadedMod.Instance.GetLocalAttributesByType<EncapsulateFieldPatchAttribute>())
+                if (opcode == OpCodes.Ldflda || opcode == OpCodes.Ldsflda)
                 {
-                    attributes.Add(attribute);
-                    targetFields.Add(attribute.Target);
-                    attributesByField[attribute.Target] = attribute;
+                    RTLog.Error(
+                        $"{nameof(Patch_EncapsulateField)} detected addressing of {field} at: {eventArgs.Method.GetTraceSignature()}:{index}");
                 }
 
-                return true;
+                isTargeted = true;
+            }
+        }
+
+        if (isTargeted) _targetMethods.Add(eventArgs.Method);
+    }
+
+    private static HashSet<EncapsulateFieldPatchAttribute> _attributes = new();
+    private static HashSet<FieldInfo> _targetFields = new();
+    private static Dictionary<FieldInfo, List<EncapsulateFieldPatchAttribute>> _attributesByField = new();
+    private static List<MethodBase> _targetMethods = new();
+
+    [HarmonyPrepare]
+    internal static bool Prepare(Harmony harmony, MethodBase original = null)
+    {
+        if (original == null) // Runs before TargetMethods
+        {
+            RTLog.HarmonyDebugMessage($"Starting {nameof(Patch_EncapsulateField)}");
+            return true;
+        }
+        else // Runs before Execute
+        {
+            RTLog.HarmonyDebugMessage($"Encapsulating fields on {original}");
+            return true;
+        }
+    }
+
+    [HarmonyTargetMethods]
+    internal static IEnumerable<MethodBase> TargetMethods(Harmony harmony) => _targetMethods;
+
+    [HarmonyTranspiler]
+    internal static IEnumerable<CodeInstruction> Execute(IEnumerable<CodeInstruction> instructions,
+        ILGenerator iLGenerator,
+        MethodBase original)
+    {
+        foreach (var instruction in instructions)
+        {
+            if (instruction.operand is FieldInfo addressField &&
+                _attributesByField.ContainsKey(addressField) &&
+                instruction.IsFieldAddressed())
+            {
+                throw new Exception("Field encapsulation cannot be performed on a field whose address is used");
+                // Ideally there is some workaround to create a field/variable and pass that things address, but we need to somehow
+                // determine the lifespan of the backing field, which is difficult to determine.
+            }
+
+            if (instruction.operand is FieldInfo multiField &&
+                _attributesByField.TryGetValue(multiField, out var targets) &&
+                targets.Count(attr => instruction.opcode == attr.MatchingOpcode) > 1)
+            {
+                throw new AttributeUsageException("Multiple attributes detected encapsulating the same instruction");
+            }
+            
+            if (instruction.operand is FieldInfo field &&
+                _attributesByField.TryGetValue(field, out var potentialAttributes) &&
+                potentialAttributes.FirstOrDefault(attr => instruction.opcode == attr.MatchingOpcode) is { } patcher)
+            {
+                Assert.AreEqual(field, patcher.Target);
+                yield return patcher.ApplyPatch(instruction);
             }
             else
             {
-                RTLog.HarmonyDebugMessage($"Encapsulating fields on {original}");
-                return true;
+                yield return instruction;
             }
         }
+    }
 
-        // Search for every method, constructor, getter and setter that references fields we are encapsulating.
-        [HarmonyTargetMethods]
-        public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
+    [HarmonyCleanup]
+    internal static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
+    {
+        if (original == null) // Runs when patching is complete
         {
-            if (harmony is null)
+            if (!Prefs.DevMode)
             {
-                throw new ArgumentNullException(nameof(harmony));
+                _attributes.Clear();
+                _attributes = null;
+                _attributesByField.Clear();
+                _attributesByField = null;
+                _targetFields.Clear();
+                _targetFields = null;
+                _targetMethods.Clear();
+                _targetMethods = null;
             }
 
-            foreach (var target in from assembly in RimThreaded.GameAssemblies().AsParallel()
-                                   from methodBase in assembly.AllMethodBases()
-                                   where FindAllTargetedInstructions(methodBase).Count() > 0
-                                   select methodBase)
+            if (Prefs.DevMode && Prefs.LogVerbose)
             {
-                yield return target;
-            }
-        }
-
-        private static IEnumerable<int> FindAllTargetedInstructions(MethodBase method, HarmonyMethodBody methodBody = null)
-        {
-            methodBody ??= RimThreadedHarmony.ReadMethodBody(method);
-            foreach (var ((opcode, operand), index) in methodBody.WithIndex())
-            {
-                if (operand is FieldInfo field && targetFields.Contains(field))
-                {
-                    if (opcode == OpCodes.Ldflda || opcode == OpCodes.Ldsflda)
-                    {
-                        RTLog.Error($"{nameof(Patch_EncapsulateField)} detected addressing of {field} at: {method.GetTraceSignature()}:{index}");
-                    }
-                    yield return index;
-                }
-            }
-        }
-
-        [HarmonyTranspiler]
-        public static IEnumerable<CodeInstruction> Execute(IEnumerable<CodeInstruction> instructions,
-                                                           ILGenerator iLGenerator,
-                                                           MethodBase original)
-        {
-            if (instructions is null)
-            {
-                throw new ArgumentNullException(nameof(instructions));
-            }
-            if (iLGenerator is null)
-            {
-                throw new ArgumentNullException(nameof(iLGenerator));
-            }
-            if (original is null)
-            {
-                throw new ArgumentNullException(nameof(original));
-            }
-
-            foreach (var instruction in instructions)
-            {
-                if (instruction.operand is FieldInfo field &&
-                    attributesByField.TryGetValue(field, out var encapsulate) &&
-                    encapsulate.IsPatchTarget(instruction))
-                {
-                    foreach (var insert in encapsulate.ApplyPatch(instruction))
-                    {
-                        yield return insert;
-                    }
-                }
-                else
-                {
-                    yield return instruction;
-                }
-            }
-        }
-
-        [HarmonyCleanup]
-        public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
-        {
-            if (original == null)
-            {
-                if (!Prefs.DevMode)
-                {
-                    attributes.Clear();
-                    attributes = null;
-                    attributesByField.Clear();
-                    attributesByField = null;
-                    targetFields.Clear();
-                    targetFields = null;
-                }
-
-                if (Prefs.DevMode && Prefs.LogVerbose)
-                {
-                    
-                }
             }
         }
     }

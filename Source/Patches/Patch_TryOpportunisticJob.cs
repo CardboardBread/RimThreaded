@@ -1,13 +1,12 @@
 ﻿using Verse;
 using Verse.AI;
 
-namespace RimThreaded.Patches
+namespace RimThreaded.Patches;
+
+class Patch_TryOpportunisticJob
 {
-    class Patch_TryOpportunisticJob
+    public static Pawn getPawn(Pawn_JobTracker jobTracker)
     {
-        public static Pawn getPawn(Pawn_JobTracker jobTracker)
-        {
-            return jobTracker.pawn;
-        }
+        return jobTracker.pawn;
     }
 }

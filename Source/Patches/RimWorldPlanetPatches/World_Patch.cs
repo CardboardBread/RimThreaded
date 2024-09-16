@@ -2,20 +2,19 @@
 using System.Collections.Generic;
 using Verse;
 
-namespace RimThreaded.Patches.RimWorldPlanetPatches
+namespace RimThreaded.Patches.RimWorldPlanetPatches;
+
+class World_Patch
 {
-    class World_Patch
+    [ThreadStatic] public static List<ThingDef> tmpNaturalRockDefs = new List<ThingDef>();
+    [ThreadStatic] public static List<int> tmpNeighbors = new List<int>();
+    [ThreadStatic] public static List<Rot4> tmpOceanDirs = new List<Rot4>();
+
+    internal static void InitializeThreadStatics()
     {
-        [ThreadStatic] public static List<ThingDef> tmpNaturalRockDefs = new List<ThingDef>();
-        [ThreadStatic] public static List<int> tmpNeighbors = new List<int>();
-        [ThreadStatic] public static List<Rot4> tmpOceanDirs = new List<Rot4>();
-
-        internal static void InitializeThreadStatics()
-        {
-            tmpNaturalRockDefs = new List<ThingDef>();
-            tmpNeighbors = new List<int>();
-            tmpOceanDirs = new List<Rot4>();
-        }
-
+        tmpNaturalRockDefs = new List<ThingDef>();
+        tmpNeighbors = new List<int>();
+        tmpOceanDirs = new List<Rot4>();
     }
+
 }

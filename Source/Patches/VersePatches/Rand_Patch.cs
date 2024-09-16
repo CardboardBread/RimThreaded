@@ -1,37 +1,34 @@
 ﻿using Verse;
 using System;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+public static class Rand_Patch
 {
-
-    public static class Rand_Patch
+    public static object lockObject = new object();
+    internal static void RunDestructivePatches()
     {
-        public static object lockObject = new object();
-        internal static void RunDestructivePatches()
-        {
-            Type original = typeof(Rand);
-            Type patched = typeof(Rand_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "PushState", Type.EmptyTypes);
-            RimThreadedHarmony.Prefix(original, patched, "PopState");
-        }
+        Type original = typeof(Rand);
+        Type patched = typeof(Rand_Patch);
+        RimThreadedHarmony.Prefix(original, patched, "PushState", Type.EmptyTypes);
+        RimThreadedHarmony.Prefix(original, patched, "PopState");
+    }
 
-        public static bool PushState()
+    public static bool PushState()
+    {
+        lock (lockObject)
         {
-            lock (lockObject)
-            {
-                Rand.stateStack.Push(Rand.StateCompressed);
-            }
-            return false;
+            Rand.stateStack.Push(Rand.StateCompressed);
         }
-        public static bool PopState()
+        return false;
+    }
+    public static bool PopState()
+    {
+        lock (lockObject)
         {
-            lock (lockObject)
-            {
-                Rand.StateCompressed = Rand.stateStack.Pop();
-            }
-            return false;
+            Rand.StateCompressed = Rand.stateStack.Pop();
         }
-
+        return false;
     }
 
 }

@@ -2,252 +2,153 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Runtime.Caching;
 using System.Runtime.CompilerServices;
 using System.Security.Principal;
 using System.Text;
 using System.Threading.Tasks;
+using HarmonyLib;
+using JetBrains.Annotations;
+using RimThreaded.Patching;
+using UnityEngine.Assertions;
 using Verse;
 
-namespace RimThreaded.Patches
+namespace RimThreaded.Patches;
+
+// While System.Runtime.Caching.MemoryCache is a bit expensive per entry, its awareness of cache-specific or application-wide memory limits will
+// help avoid flooding/stalling memory with cached method results.
+// TODO: How to handle or ignore methods with side effects.
+[HarmonyPatch]
+public static class Patch_CacheStaticMethodCall
 {
-    // While System.Runtime.Caching.MemoryCache is a bit expensive per entry, its awareness of cache-specific or application-wide memory limits will
-    // help avoid flooding/stalling memory with cached method results.
-    [HarmonyPatch]
-    public static class Patch_CacheStaticMethodCall
+    private static readonly MemoryCache ResultCache = new(nameof(Patch_CacheStaticMethodCall));
+
+    private static readonly CacheItemPolicy ItemPolicy = new()
     {
-        [HarmonyPatch]
-        public static class PostTickEviction
+        UpdateCallback = CacheEntryUpdateCallback
+    };
+
+    private static readonly Dictionary<MethodBase, int> MethodEvictions = new();
+    private static readonly Dictionary<int, int> EntryCreationTicks = new();
+
+    private static void CacheEntryUpdateCallback(CacheEntryUpdateArguments arguments)
+    {
+        // Untrack before removal, prevents using tracking data when result cache is unaligned
+        var identity = int.Parse(arguments.Key);
+        _ = EntryCreationTicks.Remove(identity);
+    }
+
+
+    [HarmonyPrepare]
+    public static void Prepare(Harmony harmony, MethodBase original = null)
+    {
+        if (original is null)
         {
-            [HarmonyPostfix]
-            [HarmonyPatch(typeof(Root_Play), nameof(Root_Play.Update))]
-            public static void Postfix_Root_Play_Update()
+            ItemPolicy.SlidingExpiration = TimeSpan.FromMilliseconds(RimThreadedSettings.Instance.TimeoutMilliseconds);
+        }
+
+        if (original is not null)
+        {
+            if (MethodEvictions.ContainsKey(original))
             {
-                foreach (var entry in from key in reverseMethodEvictionFrequency.Keys
-                                          where Find.TickManager.TicksGame % key == 0
-                                          select reverseEntryEvictionFrequency[key] into entries
-                                          from entry in entries
-                                          select entry)
+                throw new ArgumentException($"Method {original} is already handled", nameof(original));
+            }
+
+            if (!original.IsStatic)
+            {
+                throw new ArgumentException($"Cannot cache results from non-static method {original}",
+                    nameof(original));
+            }
+
+            if (original is MethodInfo method)
+            {
+                if (method.ReturnType == typeof(void))
                 {
-                    RemoveEntry(entry);
+                    throw new ArgumentException($"Cannot cache results of void returning method {method}", nameof(method));
+                }
+
+                if (typeof(object).IsAssignableFrom(method.ReturnType) is false)
+                {
+                    throw new ArgumentException($"Cannot cache results of method {method} returning a non-reference type {method.ReturnType}", nameof(method));
                 }
             }
+
+            // TODO: if this ever changes, make sure the value is non-zero and positive
+            MethodEvictions[original] = 1;
+        }
+    }
+    
+    [HarmonyTargetMethods]
+    public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
+    {
+        // TODO: Only target methods that could benefit from caching.
+        // TODO: Declare a list of methods to be targeted, possibly as MemberNotation 
+        throw new NotImplementedException();
+    }
+
+    /// <summary>
+    /// Get cached result and cancel original method, or do nothing and let it run.
+    /// </summary>
+    [HarmonyPrefix]
+    public static bool Prefix(ref object __result, object[] __args, MethodBase __originalMethod)
+    {
+        var identity = MethodCallCacheUtility.GetStaticCallHash(__originalMethod, __args);
+
+        if (ResultCache.Get(identity.ToString()) is { } cacheValue)
+        {
+            __result = cacheValue;
+            return false;
         }
 
-        private static MemoryCache resultCache = new(nameof(Patch_CacheStaticMethodCall));
-        private static CacheItemPolicy itemPolicy = new()
+        return true;
+    }
+
+    /// <summary>
+    /// Cache the result if it was generated by the original method.
+    /// </summary>
+    [HarmonyPostfix]
+    public static void Postfix(ref object __result, object[] __args, MethodBase __originalMethod, bool __runOriginal)
+    {
+        var identity = MethodCallCacheUtility.GetStaticCallHash(__originalMethod, __args);
+        var currentTick = Find.TickManager.TicksGame;
+
+        if (__runOriginal) // Save a full execution in the cache
         {
-            UpdateCallback = CacheEntryUpdateCallback,
-            RemovedCallback = CacheEntryRemovedCallback,
-        };
-
-        private static readonly Dictionary<MethodBase, int> methodEvictionFrequency = new();
-        private static readonly Dictionary<string, MethodBase> entryMethod = new();
-
-        // 'computed' dictionaries, reducing search operations to a single dict access
-        private static readonly HashSet<MethodBase> knownMethods = new();
-        private static readonly HashSet<int> knownEvictionFrequencies = new();
-        private static readonly Dictionary<int, HashSet<MethodBase>> reverseMethodEvictionFrequency = new();
-        private static readonly HashSet<string> knownEntries = new();
-        private static readonly Dictionary<string, int> entryEvictionFrequency = new();
-        private static readonly Dictionary<int, HashSet<string>> reverseEntryEvictionFrequency = new();
-        private static readonly Dictionary<MethodBase, HashSet<string>> reverseEntryMethod = new();
-
-        private static void CacheEntryUpdateCallback(CacheEntryUpdateArguments arguments)
-        {
+            ResultCache.Set(identity.ToString(), __result, ItemPolicy);
+            EntryCreationTicks[identity] = currentTick;
         }
-
-        private static void CacheEntryRemovedCallback(CacheEntryRemovedArguments arguments)
+        else // Check if the entry needs to be evicted
         {
-            UntrackEntry(arguments.CacheItem.Key);
-        }
+            var eviction = MethodEvictions[__originalMethod];
+            var creation = EntryCreationTicks[identity];
 
-        private static int GetCallHash(MethodBase methodBase, params object[] arguments)
-        {
-            if (methodBase is null)
+            if (creation + eviction <= currentTick)
             {
-                throw new ArgumentNullException(nameof(methodBase));
-            }
-
-            if (arguments == null)
-            {
-                return HashCode.Combine(methodBase);
-            }
-
-            return arguments.Length switch
-            {
-                0 => HashCode.Combine(methodBase),
-                1 => HashCode.Combine(methodBase, arguments[0]),
-                2 => HashCode.Combine(methodBase, arguments[0], arguments[1]),
-                3 => HashCode.Combine(methodBase, arguments[0], arguments[1], arguments[2]),
-                4 => HashCode.Combine(methodBase, arguments[0], arguments[1], arguments[2], arguments[3]),
-                5 => HashCode.Combine(methodBase, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4]),
-                6 => HashCode.Combine(methodBase, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5]),
-                7 => HashCode.Combine(methodBase, arguments[0], arguments[1], arguments[2], arguments[3], arguments[4], arguments[5], arguments[6]),
-                _ => buildCallHash(methodBase, arguments),
-            };
-
-            static int buildCallHash(MethodBase methodBase, object[] arguments)
-            {
-                var hash = new HashCode();
-                hash.Add(methodBase);
-                foreach (var arg in arguments)
-                {
-                    hash.Add(arg);
-                }
-                return hash.ToHashCode();
+                _ = ResultCache.Remove(identity.ToString());
+                _ = EntryCreationTicks.Remove(identity);
             }
         }
+    }
 
-        private static void InitializeMethodCaching(MethodBase methodBase, int evictionFrequency)
+    /// <summary>
+    /// Observe exceptions and clear caches to prevent potential causes.
+    /// </summary>
+    [HarmonyFinalizer]
+    public static void Finalizer(Exception __exception, ref object __result, object[] __args,
+        MethodBase __originalMethod, bool __runOriginal)
+    {
+        if (__exception is not null) // Evict the cache entry since it potentially caused an exception
         {
-            if (!knownMethods.Add(methodBase))
-            {
-                throw new ArgumentException($"Method {methodBase} is already handled");
-            }
+            var identity = MethodCallCacheUtility.GetStaticCallHash(__originalMethod, __args);
 
-            reverseEntryMethod[methodBase] = new();
-            if (knownEvictionFrequencies.Add(evictionFrequency))
-            {
-                reverseMethodEvictionFrequency[evictionFrequency] = new();
-                reverseEntryEvictionFrequency[evictionFrequency] = new();
-            }
-
-            methodEvictionFrequency[methodBase] = evictionFrequency;
-            reverseMethodEvictionFrequency[evictionFrequency].Add(methodBase);
+            _ = ResultCache.Remove(identity.ToString());
+            _ = EntryCreationTicks.Remove(identity);
         }
+    }
 
-        private static void UpdateMethodCaching(MethodBase methodBase, int evictionFrequency)
-        {
-            if (!knownMethods.Contains(methodBase))
-            {
-                throw new ArgumentException($"Method {methodBase} is not handled");
-            }
-
-            throw new NotImplementedException();
-        }
-
-        private static void AddEntry(string entry, object value, MethodBase methodBase)
-        {
-            var frequency = methodEvictionFrequency[methodBase];
-            resultCache.Set(entry, value, itemPolicy);
-            entryMethod[entry] = methodBase;
-            knownEntries.Add(entry);
-            entryEvictionFrequency[entry] = frequency;
-            reverseEntryEvictionFrequency[frequency].Add(entry);
-            reverseEntryMethod[methodBase].Add(entry);
-        }
-
-        private static void RemoveEntry(string entry, MethodBase methodBase = null, int evictionFrequency = 0)
-        {
-            _ = resultCache.Remove(entry);
-            UntrackEntry(entry, methodBase, evictionFrequency);
-        }
-
-        private static void UntrackEntry(string entry, MethodBase methodBase = null, int evictionFrequency = 0)
-        {
-            knownEntries.Remove(entry);
-            entryEvictionFrequency.Remove(entry);
-
-            methodBase = entryMethod[entry];
-            entryMethod.Remove(entry);
-            reverseEntryMethod[methodBase].Remove(entry);
-
-            evictionFrequency = entryEvictionFrequency[entry];
-            entryEvictionFrequency.Remove(entry);
-            reverseEntryEvictionFrequency[evictionFrequency].Remove(entry);
-        }
-
-        [HarmonyPrepare]
-        public static void Prepare(Harmony harmony, MethodBase original = null)
-        {
-            if (original == null)
-            {
-                itemPolicy.SlidingExpiration = TimeSpan.FromMilliseconds(RimThreadedSettings.Instance.TimeoutMilliseconds);
-            }
-
-            if (original != null)
-            {
-                InitializeMethodCaching(original, 1);
-            }
-        }
-
-        // Every static method in the game that returns an object or something that can be cast to an object.
-        [HarmonyTargetMethods]
-        public static IEnumerable<MethodBase> TargetMethods(Harmony harmony)
-        {
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from method in type.GetMethods(AccessTools.allDeclared)
-                                   where method.IsStatic
-                                   where method.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(method.ReturnType)
-                                   select method)
-            {
-                yield return target;
-            }
-
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from property in type.GetProperties(AccessTools.allDeclared)
-                                   where property.GetMethod != null
-                                   select property.GetMethod into getter
-                                   where getter.IsStatic
-                                   where getter.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(getter.ReturnType)
-                                   select getter)
-            {
-                yield return target;
-            }
-
-            foreach (var target in from type in typeof(Game).Assembly.GetTypes().AsParallel()
-                                   from property in type.GetProperties(AccessTools.allDeclared)
-                                   where property.SetMethod != null
-                                   select property.SetMethod into setter
-                                   where setter.IsStatic
-                                   where setter.ReturnType != typeof(void)
-                                   where typeof(object).IsAssignableFrom(setter.ReturnType)
-                                   select setter)
-            {
-                yield return target;
-            }
-        }
-
-        // Get cached result and cancel original method, or do nothing and let it run.
-        [HarmonyPrefix]
-        public static bool Prefix(ref object __result, object[] __args, MethodBase __originalMethod)
-        {
-            var identity = GetCallHash(__originalMethod, __args).ToString();
-
-            if (resultCache.Get(identity) is object cacheValue)
-            {
-                __result = cacheValue;
-                return false;
-            }
-
-            return true;
-        }
-
-        // Cache the result if it was generated by the original method.
-        [HarmonyPostfix]
-        public static void Postfix(ref object __result, object[] __args, MethodBase __originalMethod, bool __runOriginal)
-        {
-            if (__runOriginal)
-            {
-                var identity = GetCallHash(__originalMethod, __args).ToString();
-                AddEntry(identity, __result, __originalMethod);
-            }
-        }
-
-        [HarmonyFinalizer]
-        public static void Finalizer(Exception __exception, ref object __result, object[] __args, MethodBase __originalMethod, bool __runOriginal)
-        {
-            //var identity = GetCallHash(__originalMethod, __args).ToString();
-            //RemoveEntry(identity);
-        }
-
-        [HarmonyCleanup]
-        public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
-        {
-
-        }
+    [HarmonyCleanup]
+    public static void Cleanup(Harmony harmony, MethodBase original = null, Exception ex = null)
+    {
     }
 }

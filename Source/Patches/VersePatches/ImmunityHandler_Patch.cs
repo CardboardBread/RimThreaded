@@ -3,58 +3,56 @@ using System.Collections.Generic;
 using Verse;
 using static Verse.ImmunityHandler;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+public class ImmunityHandler_Patch
 {
-
-    public class ImmunityHandler_Patch
+    internal static void RunDestructivePatches()
     {
-        internal static void RunDestructivePatches()
+        Type original = typeof(ImmunityHandler);
+        Type patched = typeof(ImmunityHandler_Patch);
+        RimThreadedHarmony.Prefix(original, patched, "ImmunityHandlerTick");
+    }
+
+    public static bool ImmunityHandlerTick(ImmunityHandler __instance)
+    {
+        List<ImmunityInfo> list = __instance.NeededImmunitiesNow();
+        for (int i = 0; i < list.Count; i++)
         {
-            Type original = typeof(ImmunityHandler);
-            Type patched = typeof(ImmunityHandler_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "ImmunityHandlerTick");
+            __instance.TryAddImmunityRecord(list[i].immunity, list[i].source);
         }
-
-        public static bool ImmunityHandlerTick(ImmunityHandler __instance)
+        lock (__instance)
         {
-            List<ImmunityInfo> list = __instance.NeededImmunitiesNow();
-            for (int i = 0; i < list.Count; i++)
+            List<ImmunityRecord> newImmunityList = new List<ImmunityRecord>(__instance.immunityList);
+            for (int j = 0; j < __instance.immunityList.Count; j++)
             {
-                __instance.TryAddImmunityRecord(list[i].immunity, list[i].source);
+                ImmunityRecord immunityRecord = newImmunityList[j];
+                Hediff firstHediffOfDef = __instance.pawn.health.hediffSet.GetFirstHediffOfDef(immunityRecord.hediffDef);
+                immunityRecord.ImmunityTick(__instance.pawn, firstHediffOfDef != null, firstHediffOfDef);
             }
-            lock (__instance)
+            for (int num = newImmunityList.Count - 1; num >= 0; num--)
             {
-                List<ImmunityRecord> newImmunityList = new List<ImmunityRecord>(__instance.immunityList);
-                for (int j = 0; j < __instance.immunityList.Count; j++)
+                if (newImmunityList[num].immunity <= 0f)
                 {
-                    ImmunityRecord immunityRecord = newImmunityList[j];
-                    Hediff firstHediffOfDef = __instance.pawn.health.hediffSet.GetFirstHediffOfDef(immunityRecord.hediffDef);
-                    immunityRecord.ImmunityTick(__instance.pawn, firstHediffOfDef != null, firstHediffOfDef);
-                }
-                for (int num = newImmunityList.Count - 1; num >= 0; num--)
-                {
-                    if (newImmunityList[num].immunity <= 0f)
+                    bool flag = false;
+                    for (int k = 0; k < list.Count; k++)
                     {
-                        bool flag = false;
-                        for (int k = 0; k < list.Count; k++)
+                        if (list[k].immunity == newImmunityList[num].hediffDef)
                         {
-                            if (list[k].immunity == newImmunityList[num].hediffDef)
-                            {
-                                flag = true;
-                                break;
-                            }
-                        }
-
-                        if (!flag)
-                        {
-                            newImmunityList.RemoveAt(num);
+                            flag = true;
+                            break;
                         }
                     }
-                }
-                __instance.immunityList = newImmunityList;
-            }
-            return false;
-        }
 
+                    if (!flag)
+                    {
+                        newImmunityList.RemoveAt(num);
+                    }
+                }
+            }
+            __instance.immunityList = newImmunityList;
+        }
+        return false;
     }
+
 }

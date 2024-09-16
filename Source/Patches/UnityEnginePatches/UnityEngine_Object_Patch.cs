@@ -2,43 +2,42 @@
 using static System.Threading.Thread;
 using static RimThreaded.RimThreaded;
 
-namespace RimThreaded.Patches.UnityEnginePatches
+namespace RimThreaded.Patches.UnityEnginePatches;
+
+class UnityEngine_Object_Patch
 {
-    class UnityEngine_Object_Patch
+
+    internal static void RunDestructivePatches()
     {
+        Type original = typeof(UnityEngine.Object);
+        Type patched = typeof(UnityEngine_Object_Patch);
+        RimThreadedHarmony.Prefix(original, patched, nameof(ToString), new Type[] { });
+        RimThreadedHarmony.Prefix(original, patched, nameof(Destroy), new Type[] { typeof(UnityEngine.Object) });
+    }
 
-        internal static void RunDestructivePatches()
+    public static bool ToString(UnityEngine.Object __instance, ref string __result)
+    {
+        if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
         {
-            Type original = typeof(UnityEngine.Object);
-            Type patched = typeof(UnityEngine_Object_Patch);
-            RimThreadedHarmony.Prefix(original, patched, nameof(ToString), new Type[] { });
-            RimThreadedHarmony.Prefix(original, patched, nameof(Destroy), new Type[] { typeof(UnityEngine.Object) });
+            return true;
         }
-
-        public static bool ToString(UnityEngine.Object __instance, ref string __result)
+        Func<object[], object> safeFunction = parameters => __instance.ToString();
+        threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { } };
+        MainWaitHandle.Set();
+        threadInfo.eventWaitStart.WaitOne();
+        __result = (string)threadInfo.safeFunctionResult;
+        return false;
+    }
+    public static bool Destroy(UnityEngine.Object __instance)
+    {
+        if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
         {
-            if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
-            {
-                return true;
-            }
-            Func<object[], object> safeFunction = parameters => __instance.ToString();
-            threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { } };
-            MainWaitHandle.Set();
-            threadInfo.eventWaitStart.WaitOne();
-            __result = (string)threadInfo.safeFunctionResult;
-            return false;
+            return true;
         }
-        public static bool Destroy(UnityEngine.Object __instance)
-        {
-            if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
-            {
-                return true;
-            }
-            Action<object[]> safeActionDestroy = parameters => UnityEngine.Object.Destroy(__instance);
-            threadInfo.safeFunctionRequest = new object[] { safeActionDestroy, new object[] { } };
-            MainWaitHandle.Set();
-            threadInfo.eventWaitStart.WaitOne();
-            return false;
-        }
+        Action<object[]> safeActionDestroy = parameters => UnityEngine.Object.Destroy(__instance);
+        threadInfo.safeFunctionRequest = new object[] { safeActionDestroy, new object[] { } };
+        MainWaitHandle.Set();
+        threadInfo.eventWaitStart.WaitOne();
+        return false;
     }
 }

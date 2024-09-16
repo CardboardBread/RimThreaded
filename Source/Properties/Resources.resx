@@ -98,4 +98,16 @@
 	<resheader name="writer">
 		<value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=2.0.3500.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
 	</resheader>
+	<data name="PatchConflictUtility_GetPatchConflictsText_conflictsCount" xml:space="preserve">
+		<value>Discovered {0} potential Harmony patch conflicts:</value>
+	</data>
+	<data name="PatchConflictUtility_GetPatchConflictsText_HarmonyOriginal" xml:space="preserve">
+		<value>  ---Harmony Patched Method: `{0}`---</value>
+	</data>
+	<data name="PatchConflictUtility_GetPatchConflictsText_HarmonyPatch" xml:space="preserve">
+		<value>  RimThreaded Patch Method: `{0}` priority: {1}</value>
+	</data>
+	<data name="PatchConflictUtility_GetPatchConflictsText_PatchDescription" xml:space="preserve">
+		<value>    `{0}` owner: {1}, priority: {2}</value>
+	</data>
 </root>

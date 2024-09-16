@@ -5,41 +5,40 @@ using System.Reflection;
 using System.Reflection.Emit;
 using static HarmonyLib.AccessTools;
 
-namespace RimThreaded.Patches.ModPatches
+namespace RimThreaded.Patches.ModPatches;
+
+class ZombieLand_Patch
 {
-    class ZombieLand_Patch
+    public static void Patch()
     {
-        public static void Patch()
+        Type type = TypeByName("ZombieLand.ZombieStateHandler");
+        if (type != null)
         {
-            Type type = TypeByName("ZombieLand.ZombieStateHandler");
-            if (type != null)
+            foreach (MethodInfo method in type.GetMethods())
             {
-                foreach (MethodInfo method in type.GetMethods())
+                if (method.IsDeclaredMember())
                 {
-                    if (method.IsDeclaredMember())
+                    try
                     {
-                        try
+                        IEnumerable<KeyValuePair<OpCode, object>> f = PatchProcessor.ReadMethodBody(method);
+                        foreach (KeyValuePair<OpCode, object> e in f)
                         {
-                            IEnumerable<KeyValuePair<OpCode, object>> f = PatchProcessor.ReadMethodBody(method);
-                            foreach (KeyValuePair<OpCode, object> e in f)
+                            if (e.Value is FieldInfo fieldInfo && RimThreadedHarmony.replaceFields.ContainsKey(fieldInfo))
                             {
-                                if (e.Value is FieldInfo fieldInfo && RimThreadedHarmony.replaceFields.ContainsKey(fieldInfo))
-                                {
-                                    RimThreadedHarmony.TranspileFieldReplacements(method);
-                                    break;
-                                }
-                                if (e.Value is MethodInfo methodInfo && RimThreadedHarmony.replaceFields.ContainsKey(methodInfo))
-                                {
-                                    RimThreadedHarmony.TranspileFieldReplacements(method);
-                                    break;
-                                }
+                                RimThreadedHarmony.TranspileFieldReplacements(method);
+                                break;
+                            }
+                            if (e.Value is MethodInfo methodInfo && RimThreadedHarmony.replaceFields.ContainsKey(methodInfo))
+                            {
+                                RimThreadedHarmony.TranspileFieldReplacements(method);
+                                break;
                             }
                         }
-                        catch (NotSupportedException) { }
                     }
+                    catch (NotSupportedException) { }
                 }
             }
-
         }
+
     }
 }

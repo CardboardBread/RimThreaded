@@ -4,30 +4,29 @@ using Verse;
 using static RimThreaded.RimThreaded;
 using static System.Threading.Thread;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+class Text_Patch
 {
-    class Text_Patch
+
+    private static readonly Type Original = typeof(Text);
+    private static readonly Type Patched = typeof(Text_Patch);
+
+    public static void RunDestructivePatches()
     {
+        RimThreadedHarmony.Prefix(Original, Patched, "get_CurFontStyle");
+    }
 
-        private static readonly Type Original = typeof(Text);
-        private static readonly Type Patched = typeof(Text_Patch);
+    public static Func<object[], object> safeFunction = parameters => { return Text.CurFontStyle; };
+    public static bool get_CurFontStyle(ref GUIStyle __result)
+    {
+        if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
+            return true;
+        threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { } };
+        MainWaitHandle.Set();
+        threadInfo.eventWaitStart.WaitOne();
+        __result = (GUIStyle)threadInfo.safeFunctionResult;
+        return false;
 
-        public static void RunDestructivePatches()
-        {
-            RimThreadedHarmony.Prefix(Original, Patched, "get_CurFontStyle");
-        }
-
-        public static Func<object[], object> safeFunction = parameters => { return Text.CurFontStyle; };
-        public static bool get_CurFontStyle(ref GUIStyle __result)
-        {
-            if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
-                return true;
-            threadInfo.safeFunctionRequest = new object[] { safeFunction, new object[] { } };
-            MainWaitHandle.Set();
-            threadInfo.eventWaitStart.WaitOne();
-            __result = (GUIStyle)threadInfo.safeFunctionResult;
-            return false;
-
-        }
     }
 }

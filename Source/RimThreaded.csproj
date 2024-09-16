@@ -29,6 +29,7 @@
 	<DocumentationFile />
 	<PackageOutputPath />
 	<Nullable>warnings</Nullable>
+	<NeutralLanguage>en-US</NeutralLanguage>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
     <DebugSymbols>true</DebugSymbols>

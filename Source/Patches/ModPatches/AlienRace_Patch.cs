@@ -8,41 +8,40 @@ using static HarmonyLib.AccessTools;
 using static RimThreaded.RimThreadedHarmony;
 using RimThreaded.Patches.VersePatches;
 
-namespace RimThreaded.Patches.ModPatches
+namespace RimThreaded.Patches.ModPatches;
+
+class AlienRace_Patch
 {
-    class AlienRace_Patch
+
+    public static void Patch()
+    {
+        Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
+        if (ARHarmonyPatches != null)
+        {
+
+            string methodName = nameof(HediffSet_Patch.AddDirect);
+            Log.Message("RimThreaded is patching " + typeof(HediffSet_Patch).FullName + " " + methodName);
+            Transpile(typeof(HediffSet_Patch), typeof(AlienRace_Patch), methodName);
+
+
+            methodName = nameof(HediffSet_Patch.CacheMissingPartsCommonAncestors);
+            Log.Message("RimThreaded is patching " + typeof(HediffSet_Patch).FullName + " " + methodName);
+            Transpile(typeof(HediffSet_Patch), typeof(AlienRace_Patch), methodName);
+
+        }
+    }
+
+
+    public static IEnumerable<CodeInstruction> AddDirect(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
     {
 
-        public static void Patch()
-        {
-            Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
-            if (ARHarmonyPatches != null)
-            {
+        Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
+        return (IEnumerable<CodeInstruction>)ARHarmonyPatches.GetMethod("BodyReferenceTranspiler").Invoke(null, new object[] { instructions });
+    }
+    public static IEnumerable<CodeInstruction> CacheMissingPartsCommonAncestors(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
+    {
 
-                string methodName = nameof(HediffSet_Patch.AddDirect);
-                Log.Message("RimThreaded is patching " + typeof(HediffSet_Patch).FullName + " " + methodName);
-                Transpile(typeof(HediffSet_Patch), typeof(AlienRace_Patch), methodName);
-
-
-                methodName = nameof(HediffSet_Patch.CacheMissingPartsCommonAncestors);
-                Log.Message("RimThreaded is patching " + typeof(HediffSet_Patch).FullName + " " + methodName);
-                Transpile(typeof(HediffSet_Patch), typeof(AlienRace_Patch), methodName);
-
-            }
-        }
-
-
-        public static IEnumerable<CodeInstruction> AddDirect(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
-        {
-
-            Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
-            return (IEnumerable<CodeInstruction>)ARHarmonyPatches.GetMethod("BodyReferenceTranspiler").Invoke(null, new object[] { instructions });
-        }
-        public static IEnumerable<CodeInstruction> CacheMissingPartsCommonAncestors(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
-        {
-
-            Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
-            return (IEnumerable<CodeInstruction>)ARHarmonyPatches.GetMethod("BodyReferenceTranspiler").Invoke(null, new object[] { instructions });
-        }
+        Type ARHarmonyPatches = TypeByName("AlienRace.HarmonyPatches");
+        return (IEnumerable<CodeInstruction>)ARHarmonyPatches.GetMethod("BodyReferenceTranspiler").Invoke(null, new object[] { instructions });
     }
 }

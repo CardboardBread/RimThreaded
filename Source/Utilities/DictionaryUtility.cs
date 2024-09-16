@@ -4,46 +4,45 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RimThreaded.Utilities
+namespace RimThreaded.Utilities;
+
+public static class DictionaryUtility
 {
-    public static class DictionaryUtility
+    public static TValue ComputeValueIfAbsent<TKey, TValue>(this Dictionary<TKey, TValue> dict, TKey key, Func<TValue> absentFunc)
     {
-        public static V ComputeValueIfAbsent<K, V>(this Dictionary<K, V> dict, K key, Func<V> absentFunc)
-        {
-            dict.TryComputeValueIfAbsent(key, absentFunc, out V value);
-            return value;
-        }
+        dict.TryComputeValueIfAbsent(key, absentFunc, out var value);
+        return value;
+    }
 
-        public static bool TryComputeValueIfAbsent<K, V>(this Dictionary<K, V> dict, K key, Func<V> absentFunc, out V value)
+    public static bool TryComputeValueIfAbsent<TKey, TValue>(this Dictionary<TKey, TValue> dict, TKey key, Func<TValue> absentFunc, out TValue value)
+    {
+        if (dict.TryGetValue(key, out var getValue))
         {
-            if (dict.ContainsKey(key))
-            {
-                value = dict[key];
-                return true;
-            }
-            else
-            {
-                value = absentFunc();
-                dict[key] = value;
-                return false;
-            }
+            value = getValue;
+            return true;
         }
+        else
+        {
+            value = absentFunc();
+            dict[key] = value;
+            return false;
+        }
+    }
 
-        public static Dictionary<K, IEnumerable<V>> ToMultiDictionary<K, V>(this IEnumerable<IGrouping<K, V>> grouping)
+    public static Dictionary<TKey, IEnumerable<TValue>> ToMultiDictionary<TKey, TValue>(this IEnumerable<IGrouping<TKey, TValue>> grouping)
+    {
+        var dict = new Dictionary<TKey, IEnumerable<TValue>>();
+        foreach (var group in grouping)
         {
-            var dict = new Dictionary<K, IEnumerable<V>>();
-            foreach (var group in grouping)
-            {
-                dict[group.Key] = group;
-            }
-            return dict;
+            dict[group.Key] = group;
         }
+        return dict;
+    }
 
-        // For multi-dictionaries, creates a multi-value store if it's not present.
-        public static V NewValueIfAbsent<K, V>(this Dictionary<K, V> dict, K key) where V : new()
-        {
-            dict.TryComputeValueIfAbsent(key, () => new(), out V value);
-            return value;
-        }
+    // For multi-dictionaries, creates a multi-value store if it's not present.
+    public static TValue NewValueIfAbsent<TKey, TValue>(this Dictionary<TKey, TValue> dict, TKey key) where TValue : new()
+    {
+        dict.TryComputeValueIfAbsent(key, () => new(), out var value);
+        return value;
     }
 }

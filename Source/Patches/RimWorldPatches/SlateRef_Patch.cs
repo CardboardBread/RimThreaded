@@ -1,15 +1,14 @@
-﻿namespace RimThreaded.Patches.RimWorldPatches
-{
-    class SlateRef_Patch
-    {
+﻿namespace RimThreaded.Patches.RimWorldPatches;
 
-        //{
-        //    "ClassName": "RimWorld.QuestGen.SlateRef`1",
-        //    "ThreadStatics": [
-        //        {
-        //            "FieldName": "tmpCurSlate"
-        //        }
-        //    ]
-        //},
-    }
+class SlateRef_Patch
+{
+
+    //{
+    //    "ClassName": "RimWorld.QuestGen.SlateRef`1",
+    //    "ThreadStatics": [
+    //        {
+    //            "FieldName": "tmpCurSlate"
+    //        }
+    //    ]
+    //},
 }

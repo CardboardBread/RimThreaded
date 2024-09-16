@@ -5,39 +5,37 @@ using RimWorld.Planet;
 using static RimThreaded.RimThreaded;
 using static System.Threading.Thread;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+public class MapGenerator_Patch
 {
+    static readonly Func<object[], object> FuncGenerateMap = parameters =>
+        MapGenerator.GenerateMap(
+            (IntVec3)parameters[0],
+            (MapParent)parameters[1],
+            (MapGeneratorDef)parameters[2],
+            (IEnumerable<GenStepWithParams>)parameters[3],
+            (Action<Map>)parameters[4]);
 
-    public class MapGenerator_Patch
+
+    internal static void RunDestructivePatches()
     {
-        static readonly Func<object[], object> FuncGenerateMap = parameters =>
-            MapGenerator.GenerateMap(
-                (IntVec3)parameters[0],
-                (MapParent)parameters[1],
-                (MapGeneratorDef)parameters[2],
-                (IEnumerable<GenStepWithParams>)parameters[3],
-                (Action<Map>)parameters[4]);
+        Type original = typeof(MapGenerator);
+        Type patched = typeof(MapGenerator_Patch);
+        RimThreadedHarmony.Prefix(original, patched, "GenerateMap");
+    }
 
-
-        internal static void RunDestructivePatches()
-        {
-            Type original = typeof(MapGenerator);
-            Type patched = typeof(MapGenerator_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "GenerateMap");
-        }
-
-        public static bool GenerateMap(ref Map __result, IntVec3 mapSize, MapParent parent, MapGeneratorDef mapGenerator, IEnumerable<GenStepWithParams> extraGenStepDefs = null, Action<Map> extraInitBeforeContentGen = null)
-        {
-            if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
-                return true;
-            threadInfo.timeoutExempt = 60000;
-            threadInfo.safeFunctionRequest = new object[] { FuncGenerateMap, new object[] {
-                mapSize, parent, mapGenerator, extraGenStepDefs, extraInitBeforeContentGen } };
-            MainWaitHandle.Set();
-            threadInfo.eventWaitStart.WaitOne();
-            threadInfo.timeoutExempt = 0;
-            __result = (Map)threadInfo.safeFunctionResult;
-            return false;
-        }
+    public static bool GenerateMap(ref Map __result, IntVec3 mapSize, MapParent parent, MapGeneratorDef mapGenerator, IEnumerable<GenStepWithParams> extraGenStepDefs = null, Action<Map> extraInitBeforeContentGen = null)
+    {
+        if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
+            return true;
+        threadInfo.timeoutExempt = 60000;
+        threadInfo.safeFunctionRequest = new object[] { FuncGenerateMap, new object[] {
+            mapSize, parent, mapGenerator, extraGenStepDefs, extraInitBeforeContentGen } };
+        MainWaitHandle.Set();
+        threadInfo.eventWaitStart.WaitOne();
+        threadInfo.timeoutExempt = 0;
+        __result = (Map)threadInfo.safeFunctionResult;
+        return false;
     }
 }

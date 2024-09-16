@@ -5,28 +5,27 @@ using UnityEngine;
 using System.Reflection.Emit;
 using System.Linq;
 
-namespace RimThreaded.Patches.UnityEnginePatches
-{
-    public class Mesh_Transpile
-    {
-        public static IEnumerable<CodeInstruction> Mesh(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
-        {
+namespace RimThreaded.Patches.UnityEnginePatches;
 
-            List<CodeInstruction> instructionsList = instructions.ToList();
-            int i = 0;
-            while (i < instructionsList.Count)
+public class Mesh_Transpile
+{
+    public static IEnumerable<CodeInstruction> Mesh(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
+    {
+
+        List<CodeInstruction> instructionsList = instructions.ToList();
+        int i = 0;
+        while (i < instructionsList.Count)
+        {
+            if (
+                instructionsList[i].opcode == OpCodes.Call &&
+                (MethodInfo)instructionsList[i].operand == AccessTools.Method(typeof(Mesh), "InternalCreate")
+            )
             {
-                if (
-                    instructionsList[i].opcode == OpCodes.Call &&
-                    (MethodInfo)instructionsList[i].operand == AccessTools.Method(typeof(Mesh), "InternalCreate")
-                    )
-                {
-                }
-                else
-                {
-                    yield return instructionsList[i];
-                    i++;
-                }
+            }
+            else
+            {
+                yield return instructionsList[i];
+                i++;
             }
         }
     }

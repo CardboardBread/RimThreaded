@@ -9,66 +9,88 @@ using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace RimThreaded.Patching
+namespace RimThreaded.Patching;
+
+/// <summary>
+///  HarmonyPatchCategory, but ony any harmony patch target, such that a single patch class can have multiple categories.
+/// </summary>
+[AttributeUsage(AttributeTargets.Class | AttributeTargets.Delegate | AttributeTargets.Method, AllowMultiple = false)]
+public class PatchCategoryAttribute : Attribute
 {
-    // HarmonyPatchCategory, but ony any harmony patch target, such that a single patch class can have multiple categories.
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Delegate | AttributeTargets.Method, AllowMultiple = false)]
-    public class PatchCategoryAttribute : Attribute
-    {
-        public readonly string category;
+    public readonly string Category;
 
-        public PatchCategoryAttribute(string category = null)
-        {
-            this.category = category;
-        }
+    public PatchCategoryAttribute(string category)
+    {
+        Category = category;
+    }
+}
+
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public class ReplacePatchSourceAttribute : Attribute, ILocationAware
+{
+    public delegate (MethodBase, MethodBase) Usage();
+
+    internal MethodInfo _method;
+    internal Usage _delegate;
+
+    public void Locate(MemberInfo member)
+    {
+        _method = (MethodInfo)member;
+        _delegate = ((MethodInfo)member).CreateDelegate<Usage>();
     }
 
-    // Singular marker attribute like ReplacePatchesSourceAttribute
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-    public class ReplacePatchSourceAttribute : Attribute, ILocationAware
+    public bool IsLocated()
     {
-        public delegate (MethodBase, MethodBase) Usage();
+        throw new NotImplementedException();
+    }
+}
 
-        internal MethodInfo _method;
-        internal Usage _delegate;
+/// <summary>
+/// Marker attribute to declare methods that return data that is applicable for non-attribute replacement patching.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
+public class ReplacePatchesSourceAttribute : Attribute, ILocationAware
+{
+    public delegate IEnumerable<(MethodBase, MethodBase)> Usage_Multiple();
 
-        public void Locate(MemberInfo member)
-        {
-            _method = (MethodInfo)member;
-            _delegate = ((MethodInfo)member).CreateDelegate<Usage>();
-        }
+    public delegate (MethodBase, MethodBase) Usage_Single();
+
+    internal MethodInfo _method;
+    internal Usage_Multiple _delegate;
+
+    public void Locate(MemberInfo member)
+    {
+        if (!AccessTools.IsStatic(member))
+            throw new ArgumentException($"{typeof(ReplacePatchesSourceAttribute)} usage member must be static");
+        _method = (MethodInfo)member;
+        _delegate = ((MethodInfo)member).CreateDelegate<Usage_Multiple>();
     }
 
-    // Marker attribute to declare methods that return data that is applicable for non-attribute replacement patching.
-    [AttributeUsage(AttributeTargets.Method, AllowMultiple = false)]
-    public class ReplacePatchesSourceAttribute : Attribute, ILocationAware
+    public bool IsLocated()
     {
-        public delegate IEnumerable<(MethodBase, MethodBase)> Usage();
+        throw new NotImplementedException();
+    }
+}
 
-        internal MethodInfo _method;
-        internal Usage _delegate;
+/// <summary>
+/// Marker attribute of initialization methods for 'premade' static member replacement.
+/// </summary>
+[AttributeUsage(AttributeTargets.Method, Inherited = false)]
+public class ThreadStaticInitializerAttribute : Attribute, ILocationAware
+{
+    public delegate void Usage();
 
-        public void Locate(MemberInfo member)
-        {
-            if (false) throw new ArgumentException($"{typeof(ReplacePatchesSourceAttribute)} usage member must be static");
-            _method = (MethodInfo)member;
-            _delegate = ((MethodInfo)member).CreateDelegate<Usage>();
-        }
+    internal MethodInfo _method;
+    internal Usage _delegate;
+
+    public void Locate(MemberInfo member)
+    {
+        _method = (MethodInfo)member;
+        _delegate = ((MethodInfo)member).CreateDelegate<Usage>();
     }
 
-    // Marker attribute of initialization methods for 'premade' static member replacement.
-    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
-    public class ThreadStaticInitializerAttribute : Attribute, ILocationAware
+    public bool IsLocated()
     {
-        public delegate void Usage();
-
-        internal MethodInfo _method;
-        internal Usage _delegate;
-
-        public void Locate(MemberInfo member)
-        {
-            _method = (MethodInfo)member;
-            _delegate = ((MethodInfo)member).CreateDelegate<Usage>();
-        }
+        throw new NotImplementedException();
     }
 }

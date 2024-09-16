@@ -6,25 +6,24 @@ using System.Threading.Tasks;
 using Verse;
 using static Verse.PawnCapacityUtility;
 
-namespace RimThreaded.Patches.VersePatches
-{
-    public class PawnCapacityUtility_Patch
-    {
-        internal static void RunNonDestructivePatches()
-        {
-            Type original = typeof(PawnCapacityUtility);
-            Type patched = typeof(PawnCapacityUtility_Patch);
-            RimThreadedHarmony.Prefix(original, patched, nameof(CalculatePartEfficiency), null, false);
-        }
+namespace RimThreaded.Patches.VersePatches;
 
-        public static bool CalculatePartEfficiency(ref float __result, HediffSet diffSet, BodyPartRecord part, bool ignoreAddedParts = false, List<CapacityImpactor> impactors = null)
+public class PawnCapacityUtility_Patch
+{
+    internal static void RunNonDestructivePatches()
+    {
+        Type original = typeof(PawnCapacityUtility);
+        Type patched = typeof(PawnCapacityUtility_Patch);
+        RimThreadedHarmony.Prefix(original, patched, nameof(CalculatePartEfficiency), null, false);
+    }
+
+    public static bool CalculatePartEfficiency(ref float __result, HediffSet diffSet, BodyPartRecord part, bool ignoreAddedParts = false, List<CapacityImpactor> impactors = null)
+    {
+        if (part == null)
         {
-            if (part == null)
-            {
-                __result = 0f;
-                return false;
-            }
-            return true;
+            __result = 0f;
+            return false;
         }
+        return true;
     }
 }

@@ -4,31 +4,29 @@ using UnityEngine;
 using static RimThreaded.RimThreaded;
 using static System.Threading.Thread;
 
-namespace RimThreaded.Patches.RimWorldPatches
+namespace RimThreaded.Patches.RimWorldPatches;
+
+public class LightningBoltMeshMaker_Patch
 {
+    static readonly Func<object[], object> FuncLightningBoltMeshMaker = parameters =>
+        LightningBoltMeshMaker.NewBoltMesh();
 
-    public class LightningBoltMeshMaker_Patch
+    internal static void RunDestructivePatches()
     {
-        static readonly Func<object[], object> FuncLightningBoltMeshMaker = parameters =>
-            LightningBoltMeshMaker.NewBoltMesh();
-
-        internal static void RunDestructivePatches()
-        {
-            Type original = typeof(LightningBoltMeshMaker);
-            Type patched = typeof(LightningBoltMeshMaker_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "NewBoltMesh");
-        }
-
-        public static bool NewBoltMesh(ref Mesh __result)
-        {
-            if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
-                return true;
-            threadInfo.safeFunctionRequest = new object[] { FuncLightningBoltMeshMaker, new object[] { } };
-            MainWaitHandle.Set();
-            threadInfo.eventWaitStart.WaitOne();
-            __result = (Mesh)threadInfo.safeFunctionResult;
-            return false;
-        }
-
+        Type original = typeof(LightningBoltMeshMaker);
+        Type patched = typeof(LightningBoltMeshMaker_Patch);
+        RimThreadedHarmony.Prefix(original, patched, "NewBoltMesh");
     }
+
+    public static bool NewBoltMesh(ref Mesh __result)
+    {
+        if (!CurrentThread.IsBackground || !allWorkerThreads.TryGetValue(CurrentThread, out ThreadState threadInfo))
+            return true;
+        threadInfo.safeFunctionRequest = new object[] { FuncLightningBoltMeshMaker, new object[] { } };
+        MainWaitHandle.Set();
+        threadInfo.eventWaitStart.WaitOne();
+        __result = (Mesh)threadInfo.safeFunctionResult;
+        return false;
+    }
+
 }

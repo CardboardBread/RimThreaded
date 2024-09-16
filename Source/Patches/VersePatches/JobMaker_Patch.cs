@@ -3,41 +3,38 @@ using System.Collections.Concurrent;
 using Verse;
 using Verse.AI;
 
-namespace RimThreaded.Patches.VersePatches
+namespace RimThreaded.Patches.VersePatches;
+
+public static class JobMaker_Patch
 {
+    public static ConcurrentStack<Job> jobStack = new ConcurrentStack<Job>();
 
-    public static class JobMaker_Patch
+    public static void RunDestructivePatches()
     {
-        public static ConcurrentStack<Job> jobStack = new ConcurrentStack<Job>();
+        Type original = typeof(JobMaker);
+        Type patched = typeof(JobMaker_Patch);
+        RimThreadedHarmony.Prefix(original, patched, "MakeJob", new Type[] { });
+        RimThreadedHarmony.Prefix(original, patched, "ReturnToPool");
+    }
 
-        public static void RunDestructivePatches()
+    public static bool MakeJob(ref Job __result)
+    {
+        if (!jobStack.TryPop(out Job job))
         {
-            Type original = typeof(JobMaker);
-            Type patched = typeof(JobMaker_Patch);
-            RimThreadedHarmony.Prefix(original, patched, "MakeJob", new Type[] { });
-            RimThreadedHarmony.Prefix(original, patched, "ReturnToPool");
+            job = new Job();
         }
+        job.loadID = Find.UniqueIDsManager.GetNextJobID();
+        __result = job;
+        return false;
+    }
 
-        public static bool MakeJob(ref Job __result)
-        {
-            if (!jobStack.TryPop(out Job job))
-            {
-                job = new Job();
-            }
-            job.loadID = Find.UniqueIDsManager.GetNextJobID();
-            __result = job;
+    public static bool ReturnToPool(Job job)
+    {
+        if (job == null || jobStack.Count >= 1000)
             return false;
-        }
-
-        public static bool ReturnToPool(Job job)
-        {
-            if (job == null || jobStack.Count >= 1000)
-                return false;
-            job.Clear();
-            jobStack.Push(job);
-            return false;
-        }
-
+        job.Clear();
+        jobStack.Push(job);
+        return false;
     }
 
 }

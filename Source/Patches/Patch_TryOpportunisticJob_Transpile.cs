@@ -5,37 +5,36 @@ using System.Reflection.Emit;
 using Verse;
 using static HarmonyLib.AccessTools;
 
-namespace RimThreaded.Patches
+namespace RimThreaded.Patches;
+
+class Patch_TryOpportunisticJob_Transpile
 {
-    class Patch_TryOpportunisticJob_Transpile
+    public static IEnumerable<CodeInstruction> TryOpportunisticJob(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
     {
-        public static IEnumerable<CodeInstruction> TryOpportunisticJob(IEnumerable<CodeInstruction> instructions, ILGenerator iLGenerator)
+        int[] matchesFound = new int[1];
+        List<CodeInstruction> instructionsList = instructions.ToList();
+        int i = 0;
+        while (i < instructionsList.Count)
         {
-            int[] matchesFound = new int[1];
-            List<CodeInstruction> instructionsList = instructions.ToList();
-            int i = 0;
-            while (i < instructionsList.Count)
+            int matchIndex = 0;
+            if (
+                i + 3 < instructionsList.Count &&
+                instructionsList[i + 3].opcode == OpCodes.Callvirt &&
+                instructionsList[i + 3].operand.ToString().Contains("GetValue")
+            )
             {
-                int matchIndex = 0;
-                if (
-                    i + 3 < instructionsList.Count &&
-                    instructionsList[i + 3].opcode == OpCodes.Callvirt &&
-                    instructionsList[i + 3].operand.ToString().Contains("GetValue")
-                    )
-                {
-                    matchesFound[matchIndex]++;
-                    instructionsList[i].opcode = OpCodes.Call;
-                    instructionsList[i].operand = Method(typeof(Patch_TryOpportunisticJob), "getPawn");
-                    yield return instructionsList[i++];
-                    i += 3;
-                }
+                matchesFound[matchIndex]++;
+                instructionsList[i].opcode = OpCodes.Call;
+                instructionsList[i].operand = Method(typeof(Patch_TryOpportunisticJob), "getPawn");
                 yield return instructionsList[i++];
+                i += 3;
             }
-            for (int mIndex = 0; mIndex < matchesFound.Length; mIndex++)
-            {
-                if (matchesFound[mIndex] < 1)
-                    Log.Error("IL code instruction set " + mIndex + " not found");
-            }
+            yield return instructionsList[i++];
+        }
+        for (int mIndex = 0; mIndex < matchesFound.Length; mIndex++)
+        {
+            if (matchesFound[mIndex] < 1)
+                Log.Error("IL code instruction set " + mIndex + " not found");
         }
     }
 }

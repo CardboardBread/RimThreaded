@@ -1,14 +1,21 @@
 ﻿using System.Reflection;
 
-namespace RimThreaded.Utilities
+namespace RimThreaded.Utilities;
+
+/// <summary>
+/// Template for attributes that can be indicated of their own location.
+/// </summary>
+public interface ILocationAware
 {
     /// <summary>
-    /// Template for attributes that can be indicated of their own location.
+    /// Initializer for informing an attribute to it's declaring member.
     /// </summary>
-    public interface ILocationAware
-    {
-        MemberInfo Parent { get; }
-        void Locate(MemberInfo parent);
-        bool IsLocated();
-    }
+    /// <param name="parent">The member this attribute is declared on.</param>
+    void Locate(MemberInfo parent);
+
+    /// <summary>
+    /// Indicator for when an attribute properly possesses its location data.
+    /// </summary>
+    /// <returns></returns>
+    bool IsLocated();
 }
